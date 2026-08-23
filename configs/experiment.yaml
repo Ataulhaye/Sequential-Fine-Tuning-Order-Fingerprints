@@ -1,0 +1,101 @@
+# ============================================================
+# Sequential Fine-Tuning Order Fingerprints
+# Experiment Configuration
+# ============================================================
+
+seed: 42
+
+# ------------------------------------------------------------
+# Dataset
+# ------------------------------------------------------------
+
+dataset:
+  name: CIFAR100
+  root: ./data
+
+# ------------------------------------------------------------
+# Tasks
+# ------------------------------------------------------------
+
+tasks:
+
+  A:
+    - beaver
+    - dolphin
+    - otter
+    - seal
+    - whale
+
+  B:
+    - clock
+    - keyboard
+    - lamp
+    - telephone
+    - television
+
+  C:
+    - bicycle
+    - bus
+    - motorcycle
+    - pickup_truck
+    - train
+
+# ------------------------------------------------------------
+# Model
+# ------------------------------------------------------------
+
+model:
+  architecture: resnet18
+  pretrained: false
+  num_classes: 5
+
+# ------------------------------------------------------------
+# Training
+# ------------------------------------------------------------
+
+training:
+
+  # Local smoke-test value.
+  # This will be increased on the university server.
+  epochs_per_task: 1
+
+  batch_size: 128
+
+  optimizer: SGD
+
+  learning_rate: 0.1
+
+  momentum: 0.9
+
+  weight_decay: 0.0005
+
+  num_workers: 2
+
+# ------------------------------------------------------------
+# Experiment
+# ------------------------------------------------------------
+
+experiment:
+
+  sequential_orders:
+
+    - [A, B, C]
+    - [A, C, B]
+    - [B, A, C]
+    - [B, C, A]
+    - [C, A, B]
+    - [C, B, A]
+
+# ------------------------------------------------------------
+# Output
+# ------------------------------------------------------------
+
+paths:
+
+  single_checkpoints: ./checkpoints/single
+
+  sequential_checkpoints: ./checkpoints/sequential
+
+  results: ./results
+
+  figures: ./figures
