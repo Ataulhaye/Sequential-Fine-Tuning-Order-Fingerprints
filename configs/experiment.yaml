@@ -57,13 +57,13 @@ training:
 
   # Local smoke-test value.
   # This will be increased on the university server.
-  epochs_per_task: 1
+  epochs_per_task: 10
 
   batch_size: 128
 
   optimizer: SGD
 
-  learning_rate: 0.1
+  learning_rate: 0.01
 
   momentum: 0.9
 

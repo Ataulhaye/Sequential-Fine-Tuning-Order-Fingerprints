@@ -31,6 +31,18 @@ class ResNet18MultiTask(nn.Module):
 
         backbone = resnet18(weights=weights)
 
+        # Adapt ImageNet ResNet18 for CIFAR-sized 32x32 images.
+        backbone.conv1 = nn.Conv2d(
+            in_channels=3,
+            out_channels=64,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias=False,
+        )
+
+        backbone.maxpool = nn.Identity()
+
         # Save the original classification dimension.
         feature_dim = backbone.fc.in_features
 
@@ -122,3 +134,10 @@ class ResNet18MultiTask(nn.Module):
         logits = self.heads[task](features)
 
         return features, logits
+
+    def backbone_parameters(self):
+        """
+        Return parameters belonging only to the shared backbone.
+        """
+
+        return self.backbone.parameters()
