@@ -5,34 +5,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
 
-# ============================================================
-# Project task definitions
-# ============================================================
-
-TASKS: Dict[str, List[str]] = {
-    "A": [
-        "beaver",
-        "dolphin",
-        "otter",
-        "seal",
-        "whale",
-    ],
-    "B": [
-        "clock",
-        "keyboard",
-        "lamp",
-        "telephone",
-        "television",
-    ],
-    "C": [
-        "bicycle",
-        "bus",
-        "motorcycle",
-        "pickup_truck",
-        "train",
-    ],
-}
-
+from sequential_finetuning.config import load_config
 
 # ============================================================
 # CIFAR-100 normalization
@@ -185,6 +158,7 @@ class CIFAR100Task(Dataset):
 
 def create_task_dataset(
     task_name: str,
+    tasks_config: Dict[str, List[str]],
     root: str = "./data",
     train: bool = True,
 ):
@@ -192,14 +166,14 @@ def create_task_dataset(
     Create the dataset corresponding to task A, B, or C.
     """
 
-    if task_name not in TASKS:
+    if task_name not in tasks_config["tasks"]:
         raise ValueError(
-            f"Unknown task '{task_name}'. " f"Available tasks: {list(TASKS.keys())}"
+            f"Unknown task '{task_name}'. Available tasks: {list(tasks_config['tasks'])}"
         )
 
     return CIFAR100Task(
         root=root,
-        task_classes=TASKS[task_name],
+        task_classes=tasks_config["tasks"][task_name],
         train=train,
     )
 
@@ -217,6 +191,7 @@ def create_task_dataloader(
 
     dataset = create_task_dataset(
         task_name=task_name,
+        tasks_config=load_config("configs/experiment.yaml"),
         root=root,
         train=train,
     )

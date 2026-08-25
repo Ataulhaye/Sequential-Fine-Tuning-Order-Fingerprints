@@ -1,4 +1,3 @@
-from datetime import datetime
 from pathlib import Path
 
 import torch
@@ -26,28 +25,34 @@ from sequential_finetuning.train import (
 )
 from sequential_finetuning.training_utils import (
     create_optimizer_and_scheduler,
+    get_device,
+    print_device_info,
 )
 
 
-def train_single_task(
+def train_task_stage(
+    model,
     task,
     config,
     device,
+    order,
+    stage_index,
 ):
     """
-    Train one independent model on one task.
+    Train the existing model on one task.
+
+    IMPORTANT:
+    The model is NOT reinitialized.
+
+    A new optimizer and scheduler are created for
+    this task stage.
     """
 
     print()
     print("=" * 70)
-    print(f"SINGLE-TASK TRAINING: {task}")
+    print(f"SEQUENTIAL STAGE " f"{stage_index}: TASK {task}")
+    print(f"Order: {' → '.join(order)}")
     print("=" * 70)
-
-    # --------------------------------------------------------
-    # Reproducibility
-    # --------------------------------------------------------
-
-    set_seed(config["seed"])
 
     # --------------------------------------------------------
     # Configuration
@@ -88,17 +93,6 @@ def train_single_task(
     )
 
     # --------------------------------------------------------
-    # Model
-    # --------------------------------------------------------
-
-    model = ResNet18MultiTask(
-        num_classes_per_task=5,
-        pretrained=config["model"]["pretrained"],
-    )
-
-    model = model.to(device)
-
-    # --------------------------------------------------------
     # Optimizer
     # --------------------------------------------------------
 
@@ -136,7 +130,7 @@ def train_single_task(
         print(f"Learning rate: " f"{scheduler.get_last_lr()[0]:.6f}")
 
     # --------------------------------------------------------
-    # Final evaluation
+    # Evaluate current task
     # --------------------------------------------------------
 
     test_loss, test_accuracy = evaluate(
@@ -147,44 +141,118 @@ def train_single_task(
     )
 
     print()
-    print(f"Final Task {task} test loss: " f"{test_loss:.4f}")
+    print(f"Task {task} evaluation:")
 
-    print(f"Final Task {task} test accuracy: " f"{100.0 * test_accuracy:.2f}%")
+    print(f"Test loss: " f"{test_loss:.4f}")
 
-    # --------------------------------------------------------
-    # Save checkpoint
-    # --------------------------------------------------------
-
-    checkpoint_dir = Path(config["paths"]["single_checkpoints"])
-    # add date and time to the checkpoint filename to avoid overwriting previous checkpoints
-
-    # timestamp = datetime.now().strftime("%d%m%Y_%H%M%S")
-    checkpoint_path = checkpoint_dir / f"task_{task}.pt"
-
-    save_checkpoint(
-        path=checkpoint_path,
-        model=model,
-        optimizer=optimizer,
-        epoch=epochs,
-        task=task,
-        order=[task],
-        metrics={
-            "test_loss": test_loss,
-            "test_accuracy": test_accuracy,
-        },
-        config=config,
-    )
-
-    print()
-    print(f"Checkpoint saved to:")
-
-    print(checkpoint_path)
+    print(f"Test accuracy: " f"{100.0 * test_accuracy:.2f}%")
 
     return {
         "task": task,
         "test_loss": test_loss,
         "test_accuracy": test_accuracy,
-        "checkpoint": str(checkpoint_path),
+    }
+
+
+def train_sequential_order(
+    order,
+    config,
+    device,
+):
+    """
+    Train one complete sequential task order.
+
+    Example:
+
+        A → B → C
+
+    The same model is continuously fine-tuned.
+    """
+
+    print()
+    print("#" * 70)
+    print(f"SEQUENTIAL EXPERIMENT: " f"{' → '.join(order)}")
+    print("#" * 70)
+
+    # --------------------------------------------------------
+    # Reproducibility
+    # --------------------------------------------------------
+
+    set_seed(config["seed"])
+
+    # --------------------------------------------------------
+    # Create ONE model
+    # --------------------------------------------------------
+
+    model = ResNet18MultiTask(
+        num_classes_per_task=5,
+        pretrained=config["model"]["pretrained"],
+    )
+
+    model = model.to(device)
+
+    # --------------------------------------------------------
+    # Output directory
+    # --------------------------------------------------------
+
+    order_name = "_".join(order)
+
+    checkpoint_dir = Path(config["paths"]["sequential_checkpoints"]) / order_name
+
+    checkpoint_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    # --------------------------------------------------------
+    # Train each task sequentially
+    # --------------------------------------------------------
+
+    stage_results = []
+
+    for stage_index, task in enumerate(
+        order,
+        start=1,
+    ):
+
+        result = train_task_stage(
+            model=model,
+            task=task,
+            config=config,
+            device=device,
+            order=order,
+            stage_index=stage_index,
+        )
+
+        stage_results.append(result)
+
+        # ----------------------------------------------------
+        # Save checkpoint after this task
+        # ----------------------------------------------------
+
+        checkpoint_name = f"{'_'.join(order[:stage_index])}.pt"
+
+        checkpoint_path = checkpoint_dir / checkpoint_name
+
+        save_checkpoint(
+            path=checkpoint_path,
+            model=model,
+            epoch=config["training"]["epochs_per_task"],
+            task=task,
+            order=order[:stage_index],
+            metrics=result,
+            config=config,
+        )
+
+        print()
+        print(f"Checkpoint saved:")
+
+        print(checkpoint_path)
+
+    return {
+        "order": order,
+        "stages": stage_results,
+        "final_checkpoint": str(checkpoint_dir / f"{'_'.join(order)}.pt"),
     }
 
 
@@ -200,41 +268,40 @@ def main():
     # Device
     # --------------------------------------------------------
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = get_device()
 
-    print(f"Using device: {device}")
-
-    if device.type == "cuda":
-        print(f"GPU: " f"{torch.cuda.get_device_name(0)}")
+    print_device_info(device)
 
     # --------------------------------------------------------
-    # Train A, B, C
+    # LOCAL TEST
+    #
+    # Start with ONE order.
     # --------------------------------------------------------
 
-    results = []
+    order = [
+        "A",
+        "B",
+        "C",
+    ]
 
-    for task in ["A", "B", "C"]:
-
-        result = train_single_task(
-            task=task,
-            config=config,
-            device=device,
-        )
-
-        results.append(result)
+    result = train_sequential_order(
+        order=order,
+        config=config,
+        device=device,
+    )
 
     # --------------------------------------------------------
     # Summary
     # --------------------------------------------------------
 
     print()
-    print("=" * 70)
-    print("SINGLE-TASK TRAINING SUMMARY")
-    print("=" * 70)
+    print("#" * 70)
+    print("SEQUENTIAL EXPERIMENT COMPLETE")
+    print("#" * 70)
 
-    for result in results:
+    print(f"Order: " f"{' → '.join(result['order'])}")
 
-        print(f"Task {result['task']}: " f"{100.0 * result['test_accuracy']:.2f}%")
+    print(f"Final checkpoint: " f"{result['final_checkpoint']}")
 
 
 if __name__ == "__main__":

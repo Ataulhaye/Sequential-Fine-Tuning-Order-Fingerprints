@@ -1,26 +1,29 @@
 from collections import Counter
 
-from sequential_finetuning.dataset import TASKS, create_task_dataset
+from sequential_finetuning.config import load_config
+from sequential_finetuning.dataset import create_task_dataset
 
 
-def inspect_task(task_name: str):
+def inspect_task(task_name: str, tasks_config: dict):
     print("=" * 70)
     print(f"TASK {task_name}")
     print("=" * 70)
 
     print("Classes:")
 
-    for index, class_name in enumerate(TASKS[task_name]):
+    for index, class_name in enumerate(tasks_config[task_name]):
         print(f"  {index}: {class_name}")
 
     train_dataset = create_task_dataset(
         task_name=task_name,
+        tasks_config=tasks_config,
         root="./data",
         train=True,
     )
 
     test_dataset = create_task_dataset(
         task_name=task_name,
+        tasks_config=tasks_config,
         root="./data",
         train=False,
     )
@@ -48,8 +51,11 @@ def main():
     print("CIFAR-100 Sequential Fine-Tuning Project")
     print()
 
-    for task_name in TASKS:
-        inspect_task(task_name)
+    # Load tasks configuration once at entry point
+    tasks_config = load_config("configs/experiment.yaml")
+
+    for task_name in tasks_config:
+        inspect_task(task_name, tasks_config)
 
 
 if __name__ == "__main__":
