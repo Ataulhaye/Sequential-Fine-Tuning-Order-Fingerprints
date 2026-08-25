@@ -1,30 +1,32 @@
+from typing import Dict
+
 import torch
-import torch.nn as nn
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 
 @torch.no_grad()
 def evaluate(
-    model,
-    dataloader,
-    device,
-    task,
-):
+    model: torch.nn.Module,
+    dataloader: DataLoader,
+    device: torch.device,
+    task: str,
+) -> Dict[str, float]:
     """
     Evaluate a model on one task.
     """
 
     model.eval()
 
-    criterion = nn.CrossEntropyLoss()
+    criterion = torch.nn.CrossEntropyLoss()
 
     total_loss = 0.0
     correct = 0
     total = 0
 
-    for images, labels in tqdm(
+    for images, targets in tqdm(
         dataloader,
-        desc=f"Evaluate Task {task}",
+        desc=f"Task {task}",
         leave=False,
     ):
 
@@ -33,33 +35,39 @@ def evaluate(
             non_blocking=True,
         )
 
-        labels = labels.to(
+        targets = targets.to(
             device,
             non_blocking=True,
         )
 
-        logits = model(
+        # ----------------------------------------------------
+        # Use the task-specific classification head
+        # ----------------------------------------------------
+
+        outputs = model(
             images,
-            task=task,
+            task,
         )
 
         loss = criterion(
-            logits,
-            labels,
+            outputs,
+            targets,
         )
 
-        batch_size = labels.size(0)
+        batch_size = images.size(0)
 
         total_loss += loss.item() * batch_size
 
-        predictions = logits.argmax(dim=1)
+        predictions = outputs.argmax(dim=1)
 
-        correct += (predictions == labels).sum().item()
+        correct += (predictions == targets).sum().item()
 
         total += batch_size
 
-    avg_loss = total_loss / total
+    if total == 0:
+        raise RuntimeError("Evaluation dataset is empty.")
 
-    accuracy = correct / total
-
-    return avg_loss, accuracy
+    return {
+        "loss": total_loss / total,
+        "accuracy": correct / total,
+    }

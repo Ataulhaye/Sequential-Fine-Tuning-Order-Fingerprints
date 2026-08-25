@@ -129,28 +129,10 @@ def train_task_stage(
 
         print(f"Learning rate: " f"{scheduler.get_last_lr()[0]:.6f}")
 
-    # --------------------------------------------------------
-    # Evaluate current task
-    # --------------------------------------------------------
-
-    test_loss, test_accuracy = evaluate(
-        model=model,
-        dataloader=test_loader,
-        device=device,
-        task=task,
-    )
-
-    print()
-    print(f"Task {task} evaluation:")
-
-    print(f"Test loss: " f"{test_loss:.4f}")
-
-    print(f"Test accuracy: " f"{100.0 * test_accuracy:.2f}%")
-
     return {
         "task": task,
-        "test_loss": test_loss,
-        "test_accuracy": test_accuracy,
+        "train_loss": train_loss,
+        "train_accuracy": train_accuracy,
     }
 
 
@@ -273,35 +255,84 @@ def main():
     print_device_info(device)
 
     # --------------------------------------------------------
-    # LOCAL TEST
-    #
-    # Start with ONE order.
+    # Read sequential orders from configuration
     # --------------------------------------------------------
 
-    order = [
-        "A",
-        "B",
-        "C",
-    ]
+    sequential_orders = config["experiment"]["sequential_orders"]
 
-    result = train_sequential_order(
-        order=order,
-        config=config,
-        device=device,
-    )
-
-    # --------------------------------------------------------
-    # Summary
-    # --------------------------------------------------------
+    if not sequential_orders:
+        raise ValueError("No sequential orders found in " "configs/experiment.yaml")
 
     print()
     print("#" * 70)
-    print("SEQUENTIAL EXPERIMENT COMPLETE")
+    print("SEQUENTIAL EXPERIMENT MATRIX")
     print("#" * 70)
 
-    print(f"Order: " f"{' → '.join(result['order'])}")
+    print(f"Number of orders: " f"{len(sequential_orders)}")
 
-    print(f"Final checkpoint: " f"{result['final_checkpoint']}")
+    print()
+
+    for index, order in enumerate(
+        sequential_orders,
+        start=1,
+    ):
+        print(f"{index}. " f"{' → '.join(order)}")
+
+    # --------------------------------------------------------
+    # Run all configured orders
+    # --------------------------------------------------------
+
+    all_results = []
+
+    for experiment_index, order in enumerate(
+        sequential_orders,
+        start=1,
+    ):
+
+        print()
+        print()
+        print("#" * 70)
+        print(
+            f"SEQUENTIAL EXPERIMENT " f"{experiment_index}/" f"{len(sequential_orders)}"
+        )
+        print(f"Order: {' → '.join(order)}")
+        print("#" * 70)
+
+        result = train_sequential_order(
+            order=order,
+            config=config,
+            device=device,
+        )
+
+        all_results.append(result)
+
+        print()
+        print("-" * 70)
+        print(
+            f"Experiment " f"{experiment_index}/" f"{len(sequential_orders)} complete"
+        )
+        print(f"Order: {' → '.join(result['order'])}")
+        print(f"Final checkpoint: " f"{result['final_checkpoint']}")
+        print("-" * 70)
+
+    # --------------------------------------------------------
+    # Final summary
+    # --------------------------------------------------------
+
+    print()
+    print()
+    print("#" * 70)
+    print("ALL SEQUENTIAL EXPERIMENTS COMPLETE")
+    print("#" * 70)
+
+    for result in all_results:
+
+        print(f"{' → '.join(result['order'])}")
+
+        print(f"  Final checkpoint: " f"{result['final_checkpoint']}")
+
+    print()
+    print(f"Completed " f"{len(all_results)} " f"sequential experiments.")
 
 
 if __name__ == "__main__":
