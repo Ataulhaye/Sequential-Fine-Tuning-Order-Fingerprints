@@ -22,6 +22,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from sequential_finetuning.checkpoint import (
     load_checkpoint,
+    load_model_from_checkpoint,
 )
 from sequential_finetuning.config import (
     load_config,
@@ -38,38 +39,6 @@ from sequential_finetuning.forgetting import (
 from sequential_finetuning.model import (
     ResNet18MultiTask,
 )
-
-# ============================================================
-# Checkpoint loading
-# ============================================================
-
-
-def load_model_from_checkpoint(
-    checkpoint_path: Path,
-    device: torch.device,
-):
-    """
-    Create a fresh ResNet18MultiTask model and restore
-    the complete checkpoint.
-    """
-
-    model = ResNet18MultiTask(
-        num_classes_per_task=5,
-        pretrained=False,
-    )
-
-    checkpoint = load_checkpoint(
-        path=checkpoint_path,
-        model=model,
-        map_location=device,
-    )
-
-    model.to(device)
-
-    model.eval()
-
-    return model, checkpoint
-
 
 # ============================================================
 # Evaluate one sequential order

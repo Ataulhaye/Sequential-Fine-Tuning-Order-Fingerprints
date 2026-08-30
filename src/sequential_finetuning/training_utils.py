@@ -38,8 +38,16 @@ def get_device() -> torch.device:
     """
     Return CUDA when available, otherwise CPU.
     """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
+    if device.type == "cuda":
+        print(f"GPU: " f"{torch.cuda.get_device_name(0)}")
+
+        print(f"CUDA: " f"{torch.version.cuda}")
+
+    return device
 
 
 def print_device_info(device: torch.device) -> None:

@@ -104,6 +104,24 @@ experiment:
     - [C, A, B]
     - [C, B, A]
 
+
+representation:
+  probe:
+    enabled: true
+    type: "all_project_classes"
+    samples_per_class: 20
+    # Independent seed controlling which fixed test images
+    # are selected for representation analysis.
+    seed: 42
+    batch_size: 128
+    num_workers: 2
+
+  cka:
+    kernel: "linear"
+
+  feature_drift:
+    normalization: "relative_frobenius"
+
 # ------------------------------------------------------------
 # Output
 # ------------------------------------------------------------

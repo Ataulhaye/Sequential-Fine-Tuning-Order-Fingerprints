@@ -25,6 +25,7 @@ from sequential_finetuning.analysis.weight_distance import (
 )
 from sequential_finetuning.checkpoint import (
     load_checkpoint,
+    load_model_from_checkpoint,
 )
 from sequential_finetuning.config import (
     load_config,
@@ -35,36 +36,6 @@ from sequential_finetuning.model import (
 from sequential_finetuning.training_utils import (
     get_device,
 )
-
-# ============================================================
-# Model loading
-# ============================================================
-
-
-def load_model_from_checkpoint(
-    checkpoint_path: Path,
-    device: torch.device,
-):
-    """
-    Create a fresh model and load a checkpoint.
-    """
-
-    model = ResNet18MultiTask(
-        num_classes_per_task=5,
-        pretrained=False,
-    )
-
-    checkpoint = load_checkpoint(
-        path=checkpoint_path,
-        model=model,
-        map_location=device,
-    )
-
-    model.to(device)
-    model.eval()
-
-    return model, checkpoint
-
 
 # ============================================================
 # Load single-task reference models

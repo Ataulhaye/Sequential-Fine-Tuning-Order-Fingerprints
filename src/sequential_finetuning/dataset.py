@@ -2,8 +2,9 @@ from pathlib import Path
 from typing import Dict, List
 
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision import datasets, transforms
+from torchvision.datasets import CIFAR100
 
 from sequential_finetuning.config import load_config
 
@@ -205,3 +206,32 @@ def create_task_dataloader(
     )
 
     return loader
+
+
+def create_probe_loader(
+    dataset_root: str,
+    probe_indices: list[int],
+    batch_size: int = 32,
+    num_workers: int = 0,
+    transform=None,
+) -> DataLoader:
+    """Creates a deterministic DataLoader strictly for the probe set."""
+    if transform is None:
+        transform = get_test_transform()
+
+    base_dataset = CIFAR100(
+        root=dataset_root,
+        train=False,  # or True depending on which set indices belong to
+        download=False,
+        transform=transform,
+    )
+
+    probe_subset = Subset(base_dataset, probe_indices)
+
+    return DataLoader(
+        probe_subset,
+        batch_size=batch_size,
+        shuffle=False,  # CRITICAL: Keep false to retain sample ordering across models
+        num_workers=num_workers,
+        pin_memory=True,
+    )

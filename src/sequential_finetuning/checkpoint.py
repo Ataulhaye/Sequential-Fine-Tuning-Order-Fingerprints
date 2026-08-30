@@ -2,6 +2,8 @@ from pathlib import Path
 
 import torch
 
+from sequential_finetuning.model import ResNet18MultiTask
+
 
 def save_checkpoint(
     path,
@@ -72,3 +74,30 @@ def load_checkpoint(
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
     return checkpoint
+
+
+def load_model_from_checkpoint(
+    checkpoint_path: Path,
+    device: torch.device,
+    num_classes_per_task: int = 5,
+    pretrained: bool = False,
+):
+    """
+    Instantiates a fresh ResNet18MultiTask model, loads saved checkpoint weights,
+    transfers it to the target device, and sets it to eval mode.
+    """
+    model = ResNet18MultiTask(
+        num_classes_per_task=num_classes_per_task,
+        pretrained=pretrained,
+    )
+
+    checkpoint = load_checkpoint(
+        path=checkpoint_path,
+        model=model,
+        map_location=device,
+    )
+
+    model.to(device)
+    model.eval()
+
+    return model, checkpoint
