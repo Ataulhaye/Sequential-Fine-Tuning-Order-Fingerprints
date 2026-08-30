@@ -70,7 +70,9 @@ def analyze_order(order, config, device, probe_loader, single_features):
     comparisons = {}
     print("\nRepresentation similarities:\n" + "-" * 70)
 
-    for task in ["A", "B", "C"]:
+    tasks = list(config["tasks"].keys())
+
+    for task in tasks:
         metrics = compare_representations(
             reference_features=sequential_features,
             comparison_features=single_features[task],
