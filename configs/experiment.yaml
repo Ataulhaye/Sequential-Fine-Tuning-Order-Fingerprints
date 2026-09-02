@@ -123,6 +123,19 @@ representation:
     normalization: "relative_frobenius"
 
 # ------------------------------------------------------------
+# Advanced Analysis
+# ------------------------------------------------------------
+
+analysis:
+  loss_barrier:
+    # Number of interpolation points between reference and sequential weights.
+    num_points: 11
+
+  jacobian:
+    # Maximum number of test images analyzed per model and task.
+    max_samples: 100
+
+# ------------------------------------------------------------
 # Output
 # ------------------------------------------------------------
 

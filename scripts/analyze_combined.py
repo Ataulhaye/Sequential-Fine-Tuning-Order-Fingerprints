@@ -54,6 +54,10 @@ def main():
 
     representation_path = result_root / "representation" / "representation.json"
 
+    loss_barrier_path = result_root / "loss_barrier" / "loss_barrier.json"
+
+    jacobian_path = result_root / "jacobian" / "jacobian_analysis.json"
+
     # --------------------------------------------------------
     # Load existing analyses
     # --------------------------------------------------------
@@ -101,6 +105,31 @@ def main():
     print(f"Loaded {len(representation_results['orders'])} " "representation results.")
 
     # --------------------------------------------------------
+    # Optional: Load advanced diagnostics
+    # --------------------------------------------------------
+
+    loss_barrier_results = None
+    jacobian_results = None
+
+    if loss_barrier_path.exists():
+        print()
+        print("Loading loss-barrier results...")
+        loss_barrier_results = load_json(loss_barrier_path)
+        print(f"Loaded loss-barrier analysis for {len(loss_barrier_results)} orders.")
+    else:
+        print()
+        print("Loss-barrier results not found (optional).")
+
+    if jacobian_path.exists():
+        print()
+        print("Loading Jacobian sensitivity results...")
+        jacobian_results = load_json(jacobian_path)
+        print(f"Loaded Jacobian analysis for {len(jacobian_results)} orders.")
+    else:
+        print()
+        print("Jacobian sensitivity results not found (optional).")
+
+    # --------------------------------------------------------
     # Combine
     # --------------------------------------------------------
 
@@ -109,6 +138,8 @@ def main():
         sequential_results=sequential_results,
         weight_results=weight_results,
         representation_results=representation_results,
+        loss_barrier_results=loss_barrier_results,
+        jacobian_results=jacobian_results,
     )
 
     # --------------------------------------------------------

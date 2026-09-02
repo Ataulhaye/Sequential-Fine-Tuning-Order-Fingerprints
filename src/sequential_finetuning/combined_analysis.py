@@ -24,6 +24,8 @@ def combine_order_results(
     sequential_results: Dict,
     weight_results: Dict,
     representation_results: Dict,
+    loss_barrier_results: Dict | None = None,
+    jacobian_results: Dict | None = None,
 ) -> Dict:
     """Combine all existing analyses for one task order."""
 
@@ -46,7 +48,23 @@ def combine_order_results(
     weight = weight_by_order[order_name]
     representation = representation_by_order[order_name]
 
-    return {
+    loss_barrier_data = None
+    if loss_barrier_results is not None:
+        if isinstance(loss_barrier_results, dict) and "orders" in loss_barrier_results:
+            loss_barrier_lookup = index_orders(loss_barrier_results)
+            loss_barrier_data = loss_barrier_lookup.get(order_name)
+        else:
+            loss_barrier_data = loss_barrier_results.get(order_name)
+
+    jacobian_data = None
+    if jacobian_results is not None:
+        if isinstance(jacobian_results, dict) and "orders" in jacobian_results:
+            jacobian_lookup = index_orders(jacobian_results)
+            jacobian_data = jacobian_lookup.get(order_name)
+        else:
+            jacobian_data = jacobian_results.get(order_name)
+
+    result = {
         "order": list(order),
         "order_name": order_name,
         "actual_last_task": order[-1],
@@ -84,12 +102,22 @@ def combine_order_results(
         },
     }
 
+    if loss_barrier_data is not None:
+        result["loss_barrier"] = loss_barrier_data
+
+    if jacobian_data is not None:
+        result["jacobian"] = jacobian_data
+
+    return result
+
 
 def combine_all_results(
     orders: List[List[str]],
     sequential_results: Dict,
     weight_results: Dict,
     representation_results: Dict,
+    loss_barrier_results: Dict | None = None,
+    jacobian_results: Dict | None = None,
 ) -> Dict:
     """Combine all configured sequential orders."""
 
@@ -102,6 +130,8 @@ def combine_all_results(
                 sequential_results=sequential_results,
                 weight_results=weight_results,
                 representation_results=representation_results,
+                loss_barrier_results=loss_barrier_results,
+                jacobian_results=jacobian_results,
             )
         )
 

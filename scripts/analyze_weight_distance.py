@@ -59,7 +59,7 @@ def load_single_task_models(
 
     single_models = {}
 
-    for task in ["A", "B", "C"]:
+    for task in config["tasks"]:
 
         checkpoint_path = single_checkpoint_root / f"task_{task}.pt"
 
@@ -74,6 +74,8 @@ def load_single_task_models(
         model, checkpoint = load_model_from_checkpoint(
             checkpoint_path=checkpoint_path,
             device=device,
+            num_classes_per_task=config["model"]["num_classes"],
+            pretrained=config["model"]["pretrained"],
         )
 
         print(f"Checkpoint task: " f"{checkpoint.get('task')}")
@@ -120,6 +122,8 @@ def analyze_sequential_order(
     sequential_model, checkpoint = load_model_from_checkpoint(
         checkpoint_path=checkpoint_path,
         device=device,
+        num_classes_per_task=config["model"]["num_classes"],
+        pretrained=config["model"]["pretrained"],
     )
 
     actual_last_task = order[-1]

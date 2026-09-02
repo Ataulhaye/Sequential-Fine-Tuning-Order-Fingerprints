@@ -28,7 +28,7 @@ def load_single_task_features(config, device, probe_loader):
     print("LOADING SINGLE-TASK REPRESENTATIONS")
     print("=" * 70)
 
-    for task in ["A", "B", "C"]:
+    for task in config["tasks"]:
         checkpoint_path = checkpoint_root / f"task_{task}.pt"
         if not checkpoint_path.exists():
             raise FileNotFoundError(
@@ -37,7 +37,12 @@ def load_single_task_features(config, device, probe_loader):
 
         print(f"\nLoading Single-{task}\nCheckpoint: {checkpoint_path}")
 
-        model, _ = load_model_from_checkpoint(checkpoint_path, device)
+        model, _ = load_model_from_checkpoint(
+            checkpoint_path,
+            device,
+            num_classes_per_task=config["model"]["num_classes"],
+            pretrained=config["model"]["pretrained"],
+        )
         features = extract_features(model=model, dataloader=probe_loader, device=device)
 
         print(f"Feature shape: {tuple(features.shape)}")
@@ -62,7 +67,12 @@ def analyze_order(order, config, device, probe_loader, single_features):
     print(f"REPRESENTATION ANALYSIS: {' -> '.join(order)}")
     print("#" * 70)
 
-    model, checkpoint = load_model_from_checkpoint(checkpoint_path, device)
+    model, checkpoint = load_model_from_checkpoint(
+        checkpoint_path,
+        device,
+        num_classes_per_task=config["model"]["num_classes"],
+        pretrained=config["model"]["pretrained"],
+    )
     sequential_features = extract_features(
         model=model, dataloader=probe_loader, device=device
     )
