@@ -139,13 +139,15 @@ def train_single_task(
     # Final evaluation
     # --------------------------------------------------------
 
-    test_loss, test_accuracy = evaluate(
+    test_results = evaluate(
         model=model,
         dataloader=test_loader,
         device=device,
         task=task,
     )
+    test_loss = test_results["loss"]
 
+    test_accuracy = test_results["accuracy"]
     print()
     print(f"Final Task {task} test loss: " f"{test_loss:.4f}")
 
