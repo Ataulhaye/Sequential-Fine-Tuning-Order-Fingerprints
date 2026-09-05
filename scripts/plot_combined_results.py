@@ -1,6 +1,7 @@
-"""Create research-focused visualizations for sequential fine-tuning results."""
+"""Create research-focused visualizations from completed combined analysis results."""
 
 import json
+from math import ceil
 from pathlib import Path
 
 import matplotlib
@@ -14,19 +15,14 @@ from matplotlib.patches import Rectangle
 ROOT = Path(__file__).resolve().parents[1]
 RESULT = ROOT / "results" / "combined" / "combined_analysis.json"
 OUT = ROOT / "figures" / "combined"
-TASKS = ("A", "B", "C")
-ORDER_NAMES = ("A_B_C", "A_C_B", "B_A_C", "B_C_A", "C_A_B", "C_B_A")
 METHODS = (
-    ("Full-model weight distance", "full_model"),
-    ("Backbone distance", "backbone"),
-    ("CKA", "cka"),
-    ("Feature drift", "drift"),
+    ("Full-model weight distance", "full_model", "lower"),
+    ("Backbone distance", "backbone", "lower"),
+    ("CKA", "cka", "higher"),
+    ("Feature drift", "drift", "lower"),
 )
-COLORS = {"A": "#2878B5", "B": "#E07B39", "C": "#3A9D5D"}
-
-
-def label(order):
-    return " -> ".join(order["order"])
+PALETTE = ("#2878B5", "#E07B39", "#3A9D5D", "#B15D8D", "#8A6FB3", "#A76D35")
+METHOD_COLORS = ("#4C78A8", "#72B7B2", "#E45756", "#F2CF5B")
 
 
 def require(condition, message):
@@ -34,60 +30,109 @@ def require(condition, message):
         raise ValueError(f"Invalid combined analysis: {message}")
 
 
+def order_label(order):
+    return " -> ".join(order["order"])
+
+
+def get_orders(results):
+    orders = results.get("orders")
+    require(
+        isinstance(orders, list) and orders, "expected at least one sequential order"
+    )
+    return orders
+
+
+def get_tasks(orders):
+    tasks = list(orders[0].get("order", []))
+    require(
+        len(tasks) >= 2 and len(tasks) == len(set(tasks)),
+        "first order must contain at least two unique tasks",
+    )
+    return tasks
+
+
+def reference_name(task):
+    return f"Single-{task}"
+
+
+def task_colors(tasks):
+    return {task: PALETTE[index % len(PALETTE)] for index, task in enumerate(tasks)}
+
+
+def panel_axes(count, width=4.5, height=3.5, maximum_columns=3, sharey=False):
+    columns = min(count, maximum_columns)
+    rows = ceil(count / columns)
+    figure, axes = plt.subplots(
+        rows,
+        columns,
+        figsize=(width * columns, height * rows),
+        squeeze=False,
+        sharey=sharey,
+    )
+    for axis in axes.flat[count:]:
+        axis.set_visible(False)
+    return figure, list(axes.flat[:count])
+
+
 def load_validate(path):
     with path.open(encoding="utf-8") as file:
-        data = json.load(file)
-    orders = data.get("orders")
-    require(
-        isinstance(orders, list) and len(orders) == 6,
-        "expected exactly 6 sequential orders",
-    )
-    require(
-        tuple(order.get("order_name") for order in orders) == ORDER_NAMES,
-        "orders must be the six expected permutations",
-    )
+        results = json.load(file)
+    orders = get_orders(results)
+    tasks = get_tasks(orders)
+    expected_references = {reference_name(task) for task in tasks}
+
     for order in orders:
-        name, sequence = order["order_name"], order.get("order")
+        name = order.get("order_name", "<unnamed>")
+        sequence = order.get("order")
         require(
             isinstance(sequence, list)
-            and len(sequence) == 3
-            and set(sequence) == set(TASKS),
+            and len(sequence) >= 2
+            and len(sequence) == len(tasks)
+            and set(sequence) == set(tasks),
             f"{name}: invalid task order",
         )
         require(
             order.get("actual_last_task") == sequence[-1],
-            f"{name}: actual last task does not match order",
+            f"{name}: actual_last_task must equal order[-1]",
         )
         require(
-            set(order.get("forgetting", {})) == set(TASKS),
-            f"{name}: forgetting needs A/B/C",
+            set(order.get("forgetting", {})) == set(tasks),
+            f"{name}: forgetting must contain all discovered tasks",
         )
         for variant in ("full_model", "backbone"):
             entry = order.get("weight_distance", {}).get(variant, {})
             require(
-                set(entry.get("distances", {})) == set(TASKS)
-                and entry.get("predicted_last_task") in TASKS,
-                f"{name}: incomplete {variant} distance data",
+                set(entry.get("distances", {})) == set(tasks),
+                f"{name}: {variant} distances must contain all tasks",
             )
-        rep = order.get("representation", {})
+            require(
+                entry.get("predicted_last_task") in tasks,
+                f"{name}: {variant} prediction missing",
+            )
+        representation = order.get("representation", {})
         require(
-            set(rep.get("cka", {})) == set(TASKS)
-            and set(rep.get("feature_drift", {})) == set(TASKS),
-            f"{name}: incomplete representation data",
+            set(representation.get("cka", {})) == set(tasks),
+            f"{name}: CKA must contain all tasks",
         )
         require(
-            rep.get("predicted_last_task") in TASKS
-            and rep.get("drift_predicted_last_task") in TASKS,
-            f"{name}: missing representation prediction",
+            set(representation.get("feature_drift", {})) == set(tasks),
+            f"{name}: feature drift must contain all tasks",
         )
+        require(
+            representation.get("predicted_last_task") in tasks
+            and representation.get("drift_predicted_last_task") in tasks,
+            f"{name}: representation prediction missing",
+        )
+
         barriers = order.get("loss_barrier", {}).get("barriers", {})
         require(
-            set(barriers) == {f"Single-{task}" for task in TASKS},
-            f"{name}: incomplete loss barriers",
+            set(barriers) == expected_references,
+            f"{name}: loss barriers must contain each single-task reference",
         )
         for reference, by_task in barriers.items():
             require(
-                set(by_task) == set(TASKS), f"{name}: {reference} missing task barriers"
+                set(by_task) == set(tasks),
+                f"{name}: {reference} barriers must contain all tasks",
             )
             for task, entry in by_task.items():
                 alphas, losses = entry.get("alphas"), entry.get("losses")
@@ -95,68 +140,88 @@ def load_validate(path):
                     isinstance(alphas, list)
                     and len(alphas) > 1
                     and len(alphas) == len(losses),
-                    f"{name}: {reference}/{task} alpha/loss mismatch",
+                    f"{name}: {reference}/{task} alpha and loss arrays must match",
                 )
                 require(
                     "barrier_height" in entry and "barrier_area" in entry,
-                    f"{name}: {reference}/{task} missing barrier metrics",
+                    f"{name}: {reference}/{task} barrier metrics missing",
                 )
+
         jacobians = order.get("jacobian", {}).get("jacobians", {})
-        for task in TASKS:
+        require(isinstance(jacobians, dict), f"{name}: Jacobian data missing")
+        for task in tasks:
             sequential = [
-                value
-                for key, value in jacobians.items()
-                if key.startswith("Sequential-") and value.get("task") == task
+                entry
+                for key, entry in jacobians.items()
+                if key.startswith("Sequential-") and entry.get("task") == task
             ]
             require(
                 len(sequential) == 1
                 and "mean_sensitivity" in sequential[0].get("metrics", {}),
-                f"{name}: missing sequential Jacobian task {task}",
+                f"{name}: missing sequential Jacobian entry for {task}",
             )
             require(
                 set(sequential[0].get("channel_sensitivity", {})) == {"R", "G", "B"},
-                f"{name}: incomplete RGB sensitivity for {task}",
+                f"{name}: RGB channel sensitivity missing for {task}",
             )
-            single = jacobians.get(f"Single-{task}", {})
+            single = jacobians.get(reference_name(task), {})
             require(
                 single.get("task") == task
                 and "mean_sensitivity" in single.get("metrics", {}),
-                f"{name}: missing Single-{task} Jacobian",
+                f"{name}: missing {reference_name(task)} Jacobian entry",
             )
+
     print("Validation summary:")
-    print(
-        "Orders: 6/6\nWeight distance: complete\nRepresentation: complete\nLoss barrier: 6/6\nJacobian: 6/6"
-    )
-    return orders
+    print(f"Orders: {len(orders)}/{len(orders)}")
+    print(f"Tasks: {', '.join(tasks)}")
+    print("Weight distance: complete")
+    print("Representation: complete")
+    print(f"Loss barrier: {len(orders)}/{len(orders)}")
+    print(f"Jacobian: {len(orders)}/{len(orders)}")
+    return orders, tasks
 
 
 def predicted(order, method):
     if method in ("full_model", "backbone"):
         return order["weight_distance"][method]["predicted_last_task"]
-    return order["representation"][
-        "predicted_last_task" if method == "cka" else "drift_predicted_last_task"
+    key = "predicted_last_task" if method == "cka" else "drift_predicted_last_task"
+    return order["representation"][key]
+
+
+def accuracy_counts(orders):
+    return [
+        sum(predicted(order, method) == order["actual_last_task"] for order in orders)
+        for _, method, _ in METHODS
     ]
 
 
-def save(fig, stem):
-    names = []
-    fig.tight_layout()
-    for suffix in ("png", "pdf"):
-        name = f"{stem}.{suffix}"
-        fig.savefig(OUT / name, dpi=300, bbox_inches="tight")
-        names.append(name)
-    plt.close(fig)
-    return names
+def baseline(orders, tasks):
+    task = "A" if "A" in tasks else tasks[0]
+    accuracy = (
+        sum(order["actual_last_task"] == task for order in orders) * 100 / len(orders)
+    )
+    return task, accuracy
 
 
-def heatmap(ax, values, rows, columns, title, actual=None, cmap="YlGnBu"):
-    image = ax.imshow(values, aspect="auto", cmap=cmap)
-    ax.set_xticks(range(len(columns)), columns, rotation=20, ha="right")
-    ax.set_yticks(range(len(rows)), rows)
-    ax.set_title(title)
+def save(figure, stem):
+    figure.tight_layout()
+    filenames = []
+    for suffix in ["png"]:  # , "pdf"
+        filename = f"{stem}.{suffix}"
+        figure.savefig(OUT / filename, dpi=300, bbox_inches="tight")
+        filenames.append(filename)
+    plt.close(figure)
+    return filenames
+
+
+def heatmap(axis, values, rows, columns, title, actual_tasks=None, cmap="YlGnBu"):
+    image = axis.imshow(values, aspect="auto", cmap=cmap)
+    axis.set_xticks(range(len(columns)), columns, rotation=20, ha="right")
+    axis.set_yticks(range(len(rows)), rows)
+    axis.set_title(title)
     for row in range(values.shape[0]):
         for column in range(values.shape[1]):
-            ax.text(
+            axis.text(
                 column,
                 row,
                 f"{values[row, column]:.3f}",
@@ -164,11 +229,15 @@ def heatmap(ax, values, rows, columns, title, actual=None, cmap="YlGnBu"):
                 va="center",
                 fontsize=8,
             )
-        if actual:
-            col = TASKS.index(actual[row])
-            ax.add_patch(
+        if actual_tasks is not None:
+            column = (
+                columns.index(reference_name(actual_tasks[row]))
+                if columns[0].startswith("Single-")
+                else columns.index(actual_tasks[row])
+            )
+            axis.add_patch(
                 Rectangle(
-                    (col - 0.5, row - 0.5),
+                    (column - 0.5, row - 0.5),
                     1,
                     1,
                     fill=False,
@@ -179,108 +248,107 @@ def heatmap(ax, values, rows, columns, title, actual=None, cmap="YlGnBu"):
     return image
 
 
-def plot_accuracy(orders):
-    correct = [
-        sum(predicted(order, method) == order["actual_last_task"] for order in orders)
-        for _, method in METHODS
-    ]
-    values = np.array(correct) * 100 / 6
-    fig, ax = plt.subplots(figsize=(9, 5.2))
-    bars = ax.bar(
-        [name for name, _ in METHODS],
-        values,
-        color=["#4C78A8", "#72B7B2", "#E45756", "#F2CF5B"],
+def plot_accuracy(orders, tasks):
+    correct = accuracy_counts(orders)
+    values = np.array(correct) * 100 / len(orders)
+    baseline_task, baseline_accuracy = baseline(orders, tasks)
+    figure, axis = plt.subplots(figsize=(9, 5.2))
+    bars = axis.bar([name for name, _, _ in METHODS], values, color=METHOD_COLORS)
+    axis.axhline(
+        baseline_accuracy,
+        color="black",
+        linestyle="--",
+        label=f"Always-{baseline_task} baseline: {baseline_accuracy:.1f}%",
     )
-    ax.axhline(33.333, color="black", linestyle="--", label="Always-A baseline: 33.3%")
-    ax.set_ylim(0, 100)
-    ax.set_ylabel("Last-task prediction accuracy (%)")
-    ax.set_title("Last-task prediction accuracy")
-    ax.legend()
+    axis.set_ylim(0, 100)
+    axis.set_ylabel("Last-task prediction accuracy (%)")
+    axis.set_title("Last-task prediction accuracy")
+    axis.legend()
     for bar, value in zip(bars, values):
-        ax.text(
+        axis.text(
             bar.get_x() + bar.get_width() / 2,
             value + 2,
             f"{value:.1f}%",
             ha="center",
             fontweight="bold",
         )
-    return save(fig, "last_task_prediction_accuracy")
+    return save(figure, "last_task_prediction_accuracy")
 
 
 def plot_prediction_matrix(orders):
-    columns = ["Actual last task"] + [name for name, _ in METHODS]
+    columns = ["Actual last task"] + [name for name, _, _ in METHODS]
     labels = [
         [order["actual_last_task"]]
-        + [predicted(order, method) for _, method in METHODS]
+        + [predicted(order, method) for _, method, _ in METHODS]
         for order in orders
     ]
     values = np.array(
         [[1] + [int(value == row[0]) for value in row[1:]] for row in labels]
     )
-    fig, ax = plt.subplots(figsize=(11, 5.6))
-    ax.imshow(
+    figure, axis = plt.subplots(figsize=(11, max(4.5, len(orders) * 0.65 + 1.5)))
+    axis.imshow(
         values,
         cmap=ListedColormap(["#F4B6B2", "#B8E0C2"]),
         vmin=0,
         vmax=1,
         aspect="auto",
     )
-    ax.set_xticks(range(5), columns, rotation=20, ha="right")
-    ax.set_yticks(range(6), [label(order) for order in orders])
-    ax.set_title("Predicted last task by sequential order")
-    for row in range(6):
-        for col in range(5):
-            ax.text(
-                col, row, labels[row][col], ha="center", va="center", fontweight="bold"
-            )
-    return save(fig, "prediction_matrix")
+    axis.set_xticks(range(len(columns)), columns, rotation=20, ha="right")
+    axis.set_yticks(range(len(orders)), [order_label(order) for order in orders])
+    axis.set_title("Predicted last task by sequential order")
+    for row, labels_row in enumerate(labels):
+        for column, value in enumerate(labels_row):
+            axis.text(column, row, value, ha="center", va="center", fontweight="bold")
+    return save(figure, "prediction_matrix")
 
 
-def plot_weight(orders):
-    fig, axes = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
-    x = np.arange(6)
-    width = 0.23
-    for ax, variant, title in zip(
+def plot_weight(orders, tasks, colors):
+    figure, axes = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+    x = np.arange(len(orders))
+    width = 0.8 / len(tasks)
+    for axis, variant, title in zip(
         axes,
         ("full_model", "backbone"),
         ("Full-model distance", "Backbone-only distance"),
     ):
-        for offset, task in enumerate(TASKS):
-            bars = ax.bar(
-                x + (offset - 1) * width,
+        for index, task in enumerate(tasks):
+            bars = axis.bar(
+                x + (index - (len(tasks) - 1) / 2) * width,
                 [
                     order["weight_distance"][variant]["distances"][task]
                     for order in orders
                 ],
                 width,
-                label=f"Single-{task}",
-                color=COLORS[task],
+                label=reference_name(task),
+                color=colors[task],
             )
-            for index, bar in enumerate(bars):
-                if orders[index]["actual_last_task"] == task:
+            for row, bar in enumerate(bars):
+                if orders[row]["actual_last_task"] == task:
                     bar.set_edgecolor("black")
                     bar.set_linewidth(2)
-        ax.set_title(title)
-        ax.set_ylabel("Weight distance")
-        ax.grid(axis="y", alpha=0.25)
-        ax.legend(ncol=3)
-    axes[-1].set_xticks(x, [label(order) for order in orders], rotation=18, ha="right")
-    fig.suptitle(
+        axis.set_title(title)
+        axis.set_ylabel("Weight distance")
+        axis.grid(axis="y", alpha=0.25)
+        axis.legend(ncol=len(tasks))
+    axes[-1].set_xticks(
+        x, [order_label(order) for order in orders], rotation=18, ha="right"
+    )
+    figure.suptitle(
         "Distance to single-task references (black outline = actual last task)", y=1.01
     )
-    return save(fig, "weight_distance_scores")
+    return save(figure, "weight_distance_scores")
 
 
-def plot_representation(orders, key, title, stem, higher):
-    fig, axes = plt.subplots(2, 3, figsize=(14, 8), sharey=True)
-    for ax, order in zip(axes.flat, orders):
-        values = [order["representation"][key][task] for task in TASKS]
-        bars = ax.bar(TASKS, values, color=[COLORS[task] for task in TASKS])
-        last = TASKS.index(order["actual_last_task"])
+def plot_representation(orders, tasks, colors, key, title, stem, direction):
+    figure, axes = panel_axes(len(orders), sharey=True)
+    for axis, order in zip(axes, orders):
+        values = [order["representation"][key][task] for task in tasks]
+        bars = axis.bar(tasks, values, color=[colors[task] for task in tasks])
+        last = tasks.index(order["actual_last_task"])
         bars[last].set_edgecolor("black")
         bars[last].set_linewidth(2.3)
         for bar, value in zip(bars, values):
-            ax.text(
+            axis.text(
                 bar.get_x() + bar.get_width() / 2,
                 value,
                 f"{value:.3f}",
@@ -288,245 +356,259 @@ def plot_representation(orders, key, title, stem, higher):
                 va="bottom",
                 fontsize=8,
             )
-        ax.set_title(f"{label(order)} (last: {order['actual_last_task']})", fontsize=10)
-        ax.grid(axis="y", alpha=0.25)
-    axes[0, 0].set_ylabel("Score")
-    axes[1, 0].set_ylabel("Score")
-    fig.suptitle(
-        f"{title} by final sequential model ({'higher' if higher else 'lower'} = greater similarity; black = actual last task)",
+        axis.set_title(
+            f"{order_label(order)} (last: {order['actual_last_task']})", fontsize=10
+        )
+        axis.grid(axis="y", alpha=0.25)
+    axes[0].set_ylabel("Score")
+    figure.suptitle(
+        f"{title} by final sequential model ({direction} = greater similarity; black = actual last task)",
         y=1.01,
     )
-    return save(fig, stem)
+    return save(figure, stem)
 
 
-def plot_agreement(orders):
-    text = [[predicted(order, method) for _, method in METHODS] for order in orders]
-    values = np.array([[TASKS.index(value) for value in row] for row in text])
-    fig, ax = plt.subplots(figsize=(8.5, 5.4))
-    ax.imshow(
+def plot_agreement(orders, tasks, colors):
+    text = [[predicted(order, method) for _, method, _ in METHODS] for order in orders]
+    values = np.array([[tasks.index(value) for value in row] for row in text])
+    figure, axis = plt.subplots(figsize=(8.5, max(4.5, len(orders) * 0.65 + 1.5)))
+    axis.imshow(
         values,
-        cmap=ListedColormap([COLORS[task] for task in TASKS]),
+        cmap=ListedColormap([colors[task] for task in tasks]),
         vmin=0,
-        vmax=2,
+        vmax=max(1, len(tasks) - 1),
         aspect="auto",
     )
-    ax.set_xticks(range(4), [name for name, _ in METHODS], rotation=20, ha="right")
-    ax.set_yticks(
-        range(6),
-        [f"{label(order)} (actual: {order['actual_last_task']})" for order in orders],
+    axis.set_xticks(
+        range(len(METHODS)), [name for name, _, _ in METHODS], rotation=20, ha="right"
     )
-    ax.set_title("Method agreement on predicted last task")
-    for row in range(6):
-        for col in range(4):
-            ax.text(
-                col, row, text[row][col], ha="center", va="center", fontweight="bold"
-            )
-    return save(fig, "method_agreement")
+    axis.set_yticks(
+        range(len(orders)),
+        [
+            f"{order_label(order)} (actual: {order['actual_last_task']})"
+            for order in orders
+        ],
+    )
+    axis.set_title("Method agreement on predicted last task")
+    for row, text_row in enumerate(text):
+        for column, value in enumerate(text_row):
+            axis.text(column, row, value, ha="center", va="center", fontweight="bold")
+    return save(figure, "method_agreement")
 
 
-def plot_forgetting(orders):
-    fig, axes = plt.subplots(2, 3, figsize=(13, 7), sharey=True)
-    for ax, order in zip(axes.flat, orders):
-        bars = ax.bar(
-            TASKS,
-            [order["forgetting"][task] for task in TASKS],
-            color=[COLORS[task] for task in TASKS],
+def plot_forgetting(orders, tasks, colors):
+    figure, axes = panel_axes(len(orders), sharey=True)
+    for axis, order in zip(axes, orders):
+        bars = axis.bar(
+            tasks,
+            [order["forgetting"][task] for task in tasks],
+            color=[colors[task] for task in tasks],
         )
-        last = TASKS.index(order["actual_last_task"])
+        last = tasks.index(order["actual_last_task"])
         bars[last].set_edgecolor("black")
         bars[last].set_linewidth(2.3)
-        ax.axhline(0, color="black", linewidth=0.8)
-        ax.set_title(f"{label(order)} (last: {order['actual_last_task']})", fontsize=10)
-        ax.grid(axis="y", alpha=0.25)
-    axes[0, 0].set_ylabel("Forgetting")
-    axes[1, 0].set_ylabel("Forgetting")
-    fig.suptitle(
+        axis.axhline(0, color="black", linewidth=0.8)
+        axis.set_title(
+            f"{order_label(order)} (last: {order['actual_last_task']})", fontsize=10
+        )
+        axis.grid(axis="y", alpha=0.25)
+    axes[0].set_ylabel("Forgetting")
+    figure.suptitle(
         "Forgetting by order and task (black outline = actual last task)", y=1.01
     )
-    return save(fig, "forgetting_by_order")
+    return save(figure, "forgetting_by_order")
 
 
-def plot_loss(orders, metric=None):
+def plot_loss(orders, tasks, colors, metric=None):
+    references = [reference_name(task) for task in tasks]
     if metric:
         values = np.array(
             [
                 [
-                    order["loss_barrier"]["barriers"][f"Single-{reference}"][
+                    order["loss_barrier"]["barriers"][reference][
                         order["actual_last_task"]
                     ][metric]
-                    for reference in TASKS
+                    for reference in references
                 ]
                 for order in orders
             ]
         )
-        fig, ax = plt.subplots(figsize=(8, 5.5))
+        figure, axis = plt.subplots(figsize=(8, max(4.5, len(orders) * 0.65 + 1.5)))
         image = heatmap(
-            ax,
+            axis,
             values,
-            [label(order) for order in orders],
-            [f"Single-{task}" for task in TASKS],
+            [order_label(order) for order in orders],
+            references,
             f"{metric.replace('_', ' ').title()} on actual last task",
             [order["actual_last_task"] for order in orders],
             "magma",
         )
-        fig.colorbar(image, ax=ax, label=metric.replace("_", " "))
-        return save(fig, f"loss_barrier_{metric.split('_')[1]}")
-    fig, axes = plt.subplots(2, 3, figsize=(14, 8))
-    for ax, order in zip(axes.flat, orders):
+        figure.colorbar(image, ax=axis, label=metric.replace("_", " "))
+        return save(figure, f"loss_barrier_{metric.split('_')[1]}")
+    figure, axes = panel_axes(len(orders))
+    for axis, order in zip(axes, orders):
         actual = order["actual_last_task"]
-        for reference in TASKS:
-            entry = order["loss_barrier"]["barriers"][f"Single-{reference}"][actual]
-            ax.plot(
+        for task in tasks:
+            entry = order["loss_barrier"]["barriers"][reference_name(task)][actual]
+            axis.plot(
                 entry["alphas"],
                 entry["losses"],
                 marker="o",
                 markersize=3,
                 linewidth=1.7,
-                color=COLORS[reference],
-                label=f"Single-{reference}",
+                color=colors[task],
+                label=reference_name(task),
             )
-        ax.axvline(0, color="black", linestyle="--", linewidth=0.8)
-        ax.axvline(1, color="black", linestyle="--", linewidth=0.8)
-        ax.set_title(f"{label(order)}; evaluate task {actual}", fontsize=10)
-        ax.set_xlabel("Alpha (0 = reference, 1 = sequential)")
-        ax.set_ylabel("Loss")
-        ax.grid(alpha=0.25)
-        ax.legend(fontsize=8)
-    fig.suptitle("Loss-barrier curves on the actual last task", y=1.01)
-    return save(fig, "loss_barrier_curves")
+        axis.axvline(0, color="black", linestyle="--", linewidth=0.8)
+        axis.axvline(1, color="black", linestyle="--", linewidth=0.8)
+        axis.set_title(f"{order_label(order)}; evaluate task {actual}", fontsize=10)
+        axis.set_xlabel("Alpha (0 = reference, 1 = sequential)")
+        axis.set_ylabel("Loss")
+        axis.grid(alpha=0.25)
+        axis.legend(fontsize=8)
+    figure.suptitle("Loss-barrier curves on the actual last task", y=1.01)
+    return save(figure, "loss_barrier_curves")
 
 
-def sequential(order, task):
+def sequential_jacobian(order, task):
     return next(
-        value
-        for key, value in order["jacobian"]["jacobians"].items()
-        if key.startswith("Sequential-") and value["task"] == task
+        entry
+        for key, entry in order["jacobian"]["jacobians"].items()
+        if key.startswith("Sequential-") and entry["task"] == task
     )
 
 
-def plot_jacobian(orders):
-    fig, axes = plt.subplots(2, 3, figsize=(13, 7), sharey=True)
-    for ax, order in zip(axes.flat, orders):
-        bars = ax.bar(
-            TASKS,
-            [sequential(order, task)["metrics"]["mean_sensitivity"] for task in TASKS],
-            color=[COLORS[task] for task in TASKS],
+def plot_jacobian(orders, tasks, colors):
+    figure, axes = panel_axes(len(orders), sharey=True)
+    for axis, order in zip(axes, orders):
+        bars = axis.bar(
+            tasks,
+            [
+                sequential_jacobian(order, task)["metrics"]["mean_sensitivity"]
+                for task in tasks
+            ],
+            color=[colors[task] for task in tasks],
         )
-        last = TASKS.index(order["actual_last_task"])
+        last = tasks.index(order["actual_last_task"])
         bars[last].set_edgecolor("black")
         bars[last].set_linewidth(2.3)
-        ax.set_title(f"{label(order)} (last: {order['actual_last_task']})", fontsize=10)
-        ax.grid(axis="y", alpha=0.25)
-    axes[0, 0].set_ylabel("Mean sensitivity")
-    axes[1, 0].set_ylabel("Mean sensitivity")
-    fig.suptitle(
+        axis.set_title(
+            f"{order_label(order)} (last: {order['actual_last_task']})", fontsize=10
+        )
+        axis.grid(axis="y", alpha=0.25)
+    axes[0].set_ylabel("Mean sensitivity")
+    figure.suptitle(
         "Sequential-model Jacobian sensitivity (black outline = actual last task)",
         y=1.01,
     )
-    return save(fig, "jacobian_sensitivity_by_order")
+    return save(figure, "jacobian_sensitivity_by_order")
 
 
-def plot_jacobian_references(orders):
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4.8))
-    x = np.arange(6)
-    for ax, task in zip(axes, TASKS):
-        ax.bar(
+def plot_jacobian_references(orders, tasks, colors):
+    figure, axes = panel_axes(
+        len(tasks), width=4.8, height=4.8, maximum_columns=len(tasks)
+    )
+    x = np.arange(len(orders))
+    for axis, task in zip(axes, tasks):
+        axis.bar(
             x,
             [
-                sequential(order, task)["metrics"]["mean_sensitivity"]
+                sequential_jacobian(order, task)["metrics"]["mean_sensitivity"]
                 for order in orders
             ],
-            color=COLORS[task],
+            color=colors[task],
             label=f"Sequential: task {task}",
         )
-        for reference in TASKS:
-            ax.plot(
+        for reference in tasks:
+            axis.plot(
                 x,
                 [
-                    order["jacobian"]["jacobians"][f"Single-{reference}"]["metrics"][
-                        "mean_sensitivity"
-                    ]
+                    order["jacobian"]["jacobians"][reference_name(reference)][
+                        "metrics"
+                    ]["mean_sensitivity"]
                     for order in orders
                 ],
                 marker="o",
                 linewidth=1.4,
-                color=COLORS[reference],
-                label=f"Single-{reference}",
+                color=colors[reference],
+                label=reference_name(reference),
             )
-        ax.set_xticks(
-            x, [label(order) for order in orders], rotation=45, ha="right", fontsize=8
+        axis.set_xticks(
+            x,
+            [order_label(order) for order in orders],
+            rotation=45,
+            ha="right",
+            fontsize=8,
         )
-        ax.set_title(f"Evaluation task {task}")
-        ax.set_ylabel("Mean sensitivity")
-        ax.grid(axis="y", alpha=0.25)
+        axis.set_title(f"Evaluation task {task}")
+        axis.set_ylabel("Mean sensitivity")
+        axis.grid(axis="y", alpha=0.25)
     axes[-1].legend(fontsize=8)
-    fig.suptitle(
+    figure.suptitle(
         "Sequential model compared with single-task Jacobian references", y=1.03
     )
-    return save(fig, "jacobian_vs_single_references")
+    return save(figure, "jacobian_vs_single_references")
 
 
-def plot_channels(orders):
+def plot_channels(orders, tasks):
     values, rows = [], []
     for order in orders:
-        for task in TASKS:
-            channels = sequential(order, task)["channel_sensitivity"]
+        for task in tasks:
+            channels = sequential_jacobian(order, task)["channel_sensitivity"]
             values.append([channels[channel] for channel in ("R", "G", "B")])
-            rows.append(f"{label(order)} / {task}")
-    fig, ax = plt.subplots(figsize=(7, 9))
+            rows.append(f"{order_label(order)} / {task}")
+    figure, axis = plt.subplots(figsize=(7, max(5, len(rows) * 0.35 + 2)))
     image = heatmap(
-        ax,
+        axis,
         np.array(values),
         rows,
         ["R", "G", "B"],
         "Sequential-model RGB channel sensitivity",
-        cmap="YlGnBu",
     )
-    fig.colorbar(image, ax=ax, label="Channel sensitivity")
-    return save(fig, "jacobian_channel_sensitivity")
+    figure.colorbar(image, ax=axis, label="Channel sensitivity")
+    return save(figure, "jacobian_channel_sensitivity")
 
 
-def plot_summary(orders):
-    correct = [
-        sum(predicted(order, method) == order["actual_last_task"] for order in orders)
-        for _, method in METHODS
-    ]
-    values = np.array(correct) * 100 / 6
+def plot_summary(orders, tasks):
+    correct = accuracy_counts(orders)
+    values = np.array(correct) * 100 / len(orders)
+    baseline_task, baseline_accuracy = baseline(orders, tasks)
     distribution = [
-        [sum(predicted(order, method) == task for order in orders) for task in TASKS]
-        for _, method in METHODS
+        [sum(predicted(order, method) == task for order in orders) for task in tasks]
+        for _, method, _ in METHODS
     ]
-    fig, (ax, table_ax) = plt.subplots(
+    figure, (axis, table_axis) = plt.subplots(
         1, 2, figsize=(12, 5), gridspec_kw={"width_ratios": [1.25, 1]}
     )
-    bars = ax.bar(
-        [name for name, _ in METHODS],
-        values,
-        color=["#4C78A8", "#72B7B2", "#E45756", "#F2CF5B"],
+    bars = axis.bar([name for name, _, _ in METHODS], values, color=METHOD_COLORS)
+    axis.axhline(
+        baseline_accuracy,
+        color="black",
+        linestyle="--",
+        label=f"Always-{baseline_task} baseline: {baseline_accuracy:.1f}%",
     )
-    ax.axhline(33.333, color="black", linestyle="--", label="Always-A baseline: 33.3%")
-    ax.set_ylim(0, 100)
-    ax.set_ylabel("Accuracy (%)")
-    ax.set_title("Last-task fingerprinting")
-    ax.legend(fontsize=8)
+    axis.set_ylim(0, 100)
+    axis.set_ylabel("Accuracy (%)")
+    axis.set_title("Last-task fingerprinting")
+    axis.legend(fontsize=8)
     for bar, value, count in zip(bars, values, correct):
-        ax.text(
+        axis.text(
             bar.get_x() + bar.get_width() / 2,
             value + 2,
-            f"{value:.1f}%\n({count}/6)",
+            f"{value:.1f}%\n({count}/{len(orders)})",
             ha="center",
             fontsize=9,
         )
-    table_ax.axis("off")
-    table_ax.set_title("Prediction distribution")
-    table_ax.table(
-        cellText=[[f"{row[0]} / {row[1]} / {row[2]}"] for row in distribution],
-        colLabels=["A / B / C predictions"],
-        rowLabels=[name for name, _ in METHODS],
+    table_axis.axis("off")
+    table_axis.set_title("Prediction distribution")
+    table_axis.table(
+        cellText=[[" / ".join(map(str, row))] for row in distribution],
+        colLabels=[f"{' / '.join(tasks)} predictions"],
+        rowLabels=[name for name, _, _ in METHODS],
         cellLoc="center",
         loc="center",
     )
-    return save(fig, "research_summary")
+    return save(figure, "research_summary")
 
 
 def main():
@@ -534,26 +616,33 @@ def main():
     if not RESULT.exists():
         raise FileNotFoundError(f"Combined result file not found: {RESULT}")
     plt.rcParams.update({"font.size": 10, "axes.titlesize": 12})
-    orders = load_validate(RESULT)
+    orders, tasks = load_validate(RESULT)
+    colors = task_colors(tasks)
     generated = []
-    generated += plot_accuracy(orders)
+    generated += plot_accuracy(orders, tasks)
     generated += plot_prediction_matrix(orders)
-    generated += plot_weight(orders)
+    generated += plot_weight(orders, tasks, colors)
     generated += plot_representation(
-        orders, "cka", "CKA similarity", "cka_similarity", True
+        orders, tasks, colors, "cka", "CKA similarity", "cka_similarity", "higher"
     )
     generated += plot_representation(
-        orders, "feature_drift", "Feature drift", "feature_drift", False
+        orders,
+        tasks,
+        colors,
+        "feature_drift",
+        "Feature drift",
+        "feature_drift",
+        "lower",
     )
-    generated += plot_agreement(orders)
-    generated += plot_forgetting(orders)
-    generated += plot_loss(orders)
-    generated += plot_loss(orders, "barrier_height")
-    generated += plot_loss(orders, "barrier_area")
-    generated += plot_jacobian(orders)
-    generated += plot_jacobian_references(orders)
-    generated += plot_channels(orders)
-    generated += plot_summary(orders)
+    generated += plot_agreement(orders, tasks, colors)
+    generated += plot_forgetting(orders, tasks, colors)
+    generated += plot_loss(orders, tasks, colors)
+    generated += plot_loss(orders, tasks, colors, "barrier_height")
+    generated += plot_loss(orders, tasks, colors, "barrier_area")
+    generated += plot_jacobian(orders, tasks, colors)
+    generated += plot_jacobian_references(orders, tasks, colors)
+    generated += plot_channels(orders, tasks)
+    generated += plot_summary(orders, tasks)
     print(f"Generated {len(generated)} research figure files successfully.")
     print("Generated filenames:")
     for filename in generated:

@@ -64,7 +64,7 @@ checkpoints/
 
 # Generated experiment outputs
 results/*
-figures/*
+#figures/*
 
 # ============================================================
 # Logs
