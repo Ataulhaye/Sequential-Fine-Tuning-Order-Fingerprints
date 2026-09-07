@@ -12,8 +12,6 @@ A high barrier indicates different local minima.
 import json
 from pathlib import Path
 
-import torch
-
 from sequential_finetuning.analysis.loss_barrier import (
     compute_barrier_area,
     compute_barrier_height,

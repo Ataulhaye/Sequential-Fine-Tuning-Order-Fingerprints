@@ -1,7 +1,5 @@
 from pathlib import Path
 
-import torch
-
 from sequential_finetuning.checkpoint import (
     save_checkpoint,
 )
@@ -10,9 +8,6 @@ from sequential_finetuning.config import (
 )
 from sequential_finetuning.dataset import (
     create_task_dataloader,
-)
-from sequential_finetuning.evaluation import (
-    evaluate,
 )
 from sequential_finetuning.model import (
     ResNet18MultiTask,
@@ -80,14 +75,6 @@ def train_task_stage(
         task_name=task,
         root=dataset_root,
         train=True,
-        batch_size=batch_size,
-        num_workers=num_workers,
-    )
-
-    test_loader = create_task_dataloader(
-        task_name=task,
-        root=dataset_root,
-        train=False,
         batch_size=batch_size,
         num_workers=num_workers,
     )

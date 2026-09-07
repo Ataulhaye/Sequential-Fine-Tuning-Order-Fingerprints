@@ -8,10 +8,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from sequential_finetuning.checkpoint import load_checkpoint, load_model_from_checkpoint
+from sequential_finetuning.checkpoint import load_model_from_checkpoint
 from sequential_finetuning.config import load_config
 from sequential_finetuning.dataset import create_probe_loader
-from sequential_finetuning.model import ResNet18MultiTask
 from sequential_finetuning.probe import load_probe
 from sequential_finetuning.representation import (
     compare_representations,

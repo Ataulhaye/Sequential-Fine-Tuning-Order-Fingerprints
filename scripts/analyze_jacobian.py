@@ -22,7 +22,6 @@ from sequential_finetuning.analysis.jacobian import (
 from sequential_finetuning.checkpoint import load_model_from_checkpoint
 from sequential_finetuning.config import load_config
 from sequential_finetuning.dataset import create_task_dataloader
-from sequential_finetuning.probe import load_probe
 from sequential_finetuning.training_utils import get_device, print_device_info
 
 
@@ -65,7 +64,6 @@ def analyze_jacobian_for_model(
             break
 
     images_batch = torch.cat(images_list)[:max_samples].to(device)
-    labels_batch = torch.cat(labels_list)[:max_samples].to(device)
 
     # Compute Jacobians
     jacobians, pred_classes = compute_jacobian_batch(

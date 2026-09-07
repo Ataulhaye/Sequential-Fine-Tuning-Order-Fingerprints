@@ -219,33 +219,7 @@ The probe seed (42) is independent from the global training seed and controls on
 
 ---
 
-### STEP 6: Representation Sanity Check (Optional)
-
-**Script:** `scripts/test_representation.py`
-
-**Inputs:**
-- `configs/experiment.yaml`
-- Single-task checkpoints
-- Probe from STEP 5
-
-**Produces:**
-- Console output only (no saved results)
-
-**Purpose:**
-
-This is a lightweight sanity check that:
-
-1. Loads the frozen probe
-2. Loads all three single-task reference checkpoints
-3. Extracts backbone representations for each
-4. Computes pairwise CKA and feature drift between them
-5. Prints results to console
-
-**Use this to verify the representation extraction pipeline works before running the full analysis.**
-
----
-
-### STEP 7: Representation Analysis
+### STEP 6: Representation Analysis
 
 **Script:** `scripts/analyze_representation.py`
 
@@ -309,7 +283,7 @@ Both metrics are computed between the final sequential checkpoint and each singl
 
 ---
 
-### STEP 8: Weight-Distance Analysis
+### STEP 7: Weight-Distance Analysis
 
 **Script:** `scripts/analyze_weight_distance.py`
 
@@ -373,7 +347,7 @@ Both metrics compare the final sequential checkpoint directly against each singl
 
 ---
 
-### STEP 9: Loss-Barrier Curve Analysis (Optional)
+### STEP 8: Loss-Barrier Curve Analysis (Optional)
 
 **Script:** `scripts/analyze_loss_barrier.py`
 
@@ -431,7 +405,7 @@ The number of interpolation points is controlled by `analysis.loss_barrier.num_p
 
 ---
 
-### STEP 10: Jacobian Sensitivity Analysis (Optional)
+### STEP 9: Jacobian Sensitivity Analysis (Optional)
 
 **Script:** `scripts/analyze_jacobian.py`
 
@@ -498,7 +472,7 @@ Computes input-output Jacobian sensitivity on task probe images to understand ho
 
 ---
 
-### STEP 11: Combined Analysis
+### STEP 10: Combined Analysis
 
 **Script:** `scripts/analyze_combined.py`
 
@@ -553,7 +527,7 @@ results/combined/combined_analysis.json
 
 **Purpose:**
 
-This combines the results from STEP 4, 7, and 8 into a single comprehensive analysis file without recalculating any metrics. When the optional loss-barrier and Jacobian files are present, they are also merged into the same order-level summary. It serves as the primary reference for interpreting the complete experiment.
+This combines the results from STEP 4, 6, and 7 into a single comprehensive analysis file without recalculating any metrics. When the optional loss-barrier and Jacobian files are present, they are also merged into the same order-level summary. It serves as the primary reference for interpreting the complete experiment.
 
 ---
 
@@ -590,8 +564,6 @@ configs/experiment.yaml
          |
          v
     results/representation/probe_set.json
-         |
-         +---> test_representation.py (sanity check)
          |
          +---> analyze_representation.py
                |
@@ -646,13 +618,26 @@ configs/experiment.yaml
 | `train_sequential.py` | config, CIFAR-100 | sequential checkpoints | Train all orders |
 | `evaluate_sequential.py` | config, checkpoints | sequential metrics + forgetting | Evaluate accuracy and forgetting |
 | `create_probe.py` | config, CIFAR-100 test | probe_set.json | Create deterministic probe |
-| `test_representation.py` | config, probe, checkpoints | console output | Sanity check representation pipeline |
 | `analyze_representation.py` | config, probe, checkpoints | representation.json | Calculate CKA and feature drift |
 | `analyze_weight_distance.py` | config, checkpoints | weight_distance.json | Calculate L2 distances |
 | `analyze_loss_barrier.py` | config, checkpoints, CIFAR-100 | loss_barrier.json | Calculate loss-barrier curves (optional) |
 | `analyze_jacobian.py` | config, probe, checkpoints | jacobian_analysis.json | Calculate Jacobian sensitivity (optional) |
 | `analyze_combined.py` | existing result JSON files | combined_analysis.json | Combine core and optional advanced results |
-| `plot_combined_results.py` | combined_analysis.json | PNG figures under `figures/combined/` | Plot core results and optional advanced diagnostics |
+| `plot_combined_results.py` | combined_analysis.json | PNG/PDF figures under `figures/combined/` | Plot research figures and diagnostics |
+
+---
+
+## Test Files
+
+The lightweight checks live in `tests/` rather than the main workflow steps. Use them when changing configuration, data loading, representation extraction, reproducibility logic, or the training loop:
+
+| Test file | Purpose |
+|-----------|---------|
+| `tests/test_config.py` | Checks that the experiment configuration loads and contains the expected sections. |
+| `tests/test_dataset.py` | Checks task dataset construction and task-local labels. |
+| `tests/test_representation.py` | Checks representation extraction and pairwise CKA/feature-drift calculations on the fixed probe. |
+| `tests/test_reproducibility.py` | Checks deterministic behavior controlled by the project seeds. |
+| `tests/smoke_test_training.py` | Runs a small training smoke test to catch basic training-loop failures. |
 
 ---
 
@@ -674,31 +659,34 @@ python scripts/evaluate_sequential.py
 # 5. Create probe (once)
 python scripts/create_probe.py
 
-# 6. Optional: sanity check
-python scripts/test_representation.py
-
-# 7. Analyze representation
+# 6. Analyze representation
 python scripts/analyze_representation.py
 
-# 8. Analyze weight distance
+# 7. Analyze weight distance
 python scripts/analyze_weight_distance.py
 
-# 9. Optional: Advanced diagnostics
+# 8. Optional: Advanced diagnostics
 python scripts/analyze_loss_barrier.py       # Loss-barrier curves
 python scripts/analyze_jacobian.py           # Jacobian sensitivity
 
-# 10. Combine all results
+# 9. Combine all results
 python scripts/analyze_combined.py
 
-# 11. Generate report figures
+# 10. Generate report figures
 python scripts/plot_combined_results.py
 ```
 
-The plotting script always generates the core figures:
-`method_accuracy_summary.png`, `forgetting_by_order.png`, and
-`method_correctness_heatmap.png`. When the combined JSON contains advanced
-diagnostics, it additionally generates loss-barrier curve/summary figures and
-Jacobian sensitivity/channel figures.
+The plotting script reads `results/combined/combined_analysis.json` and writes the research figure suite under `figures/combined/`, including prediction accuracy, prediction matrices, raw score plots, forgetting, loss-barrier diagnostics, Jacobian diagnostics, and a compact research summary. See `docs/FIGURES.md` for a visual guide to the generated plots.
+
+Optional checks after setup or code changes:
+
+```bash
+python tests/test_config.py
+python tests/test_dataset.py
+python tests/test_representation.py
+python tests/test_reproducibility.py
+python tests/smoke_test_training.py
+```
 
 ---
 

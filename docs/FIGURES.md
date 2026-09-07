@@ -1,73 +1,180 @@
 # Figure Guide
 
-`scripts/plot_combined_results.py` creates paired 300 DPI PNG and PDF figures from the completed combined analysis. Sequential-order labels are generated from the recorded task sequence, for example `A -> B -> C`. A black outline always marks the task that was actually learned last.
+## Research Question
 
-## Last-Task Prediction Accuracy
+Can the final state of a sequentially fine-tuned model reveal which task was learned most recently?
 
-`last_task_prediction_accuracy.png/.pdf` compares four explicit fingerprinting rules: full-model weight distance, backbone weight distance, CKA, and feature drift. The x-axis is method; the y-axis is the percentage of sequential orders for which its predicted task matches the actual last task. The current experiment evaluates six orders.
+A sequential order such as `A -> B -> C` means that the model is trained on A, then fine-tuned further on B, then fine-tuned further on C. The **final sequential model** is the checkpoint after the complete sequence. The **actual last task** is the final element of the order, `order[-1]`; for `A -> B -> C` this is C, and for `C -> A -> B` this is B.
 
-The dashed horizontal reference is the **Always-A baseline**. It is computed from the results: because A, B, and C each occur last twice, always predicting A yields $2/6 = 33.3\%$. It is not a majority-class baseline. Accuracy above it suggests potentially useful last-task information, but six orders are very small-sample evidence. Stronger evidence requires both higher accuracy and non-biased predictions.
+The direct fingerprinting figures compare the final sequential model with single-task reference models. A `Single-A` model is trained only on task A, `Single-B` only on B, and so on. A black outline marks the task or single-task reference corresponding to the actual last task. The outline is a visual marker; it is not an additional model and it does not mean that the outlined bar is the sequential model.
 
-## Prediction Matrix
+## 1. Last-Task Prediction Accuracy
 
-`prediction_matrix.png/.pdf` has one row per sequential order. The first column is the actual last task and the remaining columns contain each method's predicted task. Green cells are correct predictions; red cells are incorrect.
+![Last-task prediction accuracy](../figures/combined/last_task_prediction_accuracy.png)
 
-This figure exposes errors that a single accuracy hides. In particular, a column repeatedly containing A can achieve 33.3% in the current balanced experiment without recovering the learned order. Evidence for fingerprinting is correct predictions across different actual last tasks, rather than repeated selection of one task.
+This is the main fingerprinting result. Each method predicts the most recent task for every final sequential model, and the bar height is the percentage of correct predictions across the evaluated orders.
 
-## Weight-Distance Scores
+The four methods are full-model weight distance, backbone weight distance, CKA, and feature drift. Weight-distance methods predict the single-task reference with the lowest L2 distance. CKA predicts the reference with the highest representation similarity. Feature drift predicts the reference with the lowest representation drift.
 
-`weight_distance_scores.png/.pdf` compares each final sequential model with every `Single-<task>` reference. The x-axis is sequential order and the y-axis is weight distance. Colors identify reference tasks; black outlines mark the reference matching the actual last task. The upper panel uses the complete model and the lower panel uses the backbone only.
+The dashed line is computed from the loaded orders as an always-one-task reference. For the current six-order experiment it is **Always-A: 33.3%**, because A is the actual last task in two of six orders. This is not a majority-class baseline; the current actual-last-task distribution is balanced. Accuracy above this line is potentially useful evidence, but with only six current orders it should be interpreted together with the prediction matrix and raw score plots.
 
-Lower distance means greater parameter similarity, and the prediction rule selects the smallest distance. The numerical bars matter because they show the separation or ambiguity behind a label: a correct prediction with only a tiny margin is weaker evidence than repeated, clear minima at the actual last task. Distance alone does not establish a causal memory mechanism.
+## 2. Last-Task Predictions by Method
 
-## CKA Similarity
+![Prediction matrix](../figures/combined/prediction_matrix.png)
 
-`cka_similarity.png/.pdf` presents the final sequential model's representation similarity to each single-task reference, separately for each order. The x-axis is reference task and the y-axis is CKA; bar colors identify reference tasks and black outlines identify the actual last task.
+Each row is one sequential order. The actual last task is shown in the row label. The columns contain the task predicted by each fingerprinting method.
 
-Higher CKA means more similar representations, so the prediction rule chooses the highest bar. Consistently highest CKA for the actual last task supports the fingerprinting hypothesis; highest bars concentrated on another task or weak score separation argue against it.
+The cells contain task labels, not model identities or model weights. Green cells are correct predictions and red cells are incorrect predictions. Repeated labels down a column indicate that a method may be selecting the same task repeatedly rather than recovering the true final task. Differences across columns show disagreement between methods.
 
-## Feature Drift
+This figure is useful because accuracy alone can hide systematic prediction patterns. A method can match a simple baseline by repeatedly selecting one task, so the predicted labels should always be compared with the actual-last-task labels in the rows.
 
-`feature_drift.png/.pdf` also compares representations to single-task references. Its x-axis is reference task and its y-axis is feature drift. Colors and black outlines have the same meaning as the CKA figure.
+## 3. Weight-Distance Scores
 
-Lower drift means more similar representations, so the prediction rule chooses the lowest bar. CKA and feature drift are related representation comparisons but quantify different properties; agreement provides more confidence than assuming one score is interchangeable with the other. A low-drift actual-last-task reference across orders supports the hypothesis, while biased or weakly separated minima do not.
+![Weight-distance scores](../figures/combined/weight_distance_scores.png)
 
-## Method Agreement
+For each sequential order there is one final sequential model. That same final model is compared separately with every single-task reference:
 
-`method_agreement.png/.pdf` has one row per order and one column per fingerprinting method. Each cell contains the predicted task and is colored by that task; the y-axis label separately states the actual last task.
+```text
+final sequential model
+   |-- distance to Single-A
+   |-- distance to Single-B
+   |-- distance to Single-C
+```
 
-Agreement among methods that is also correct across varied orders is evidence of a consistent fingerprint. Disagreement can reveal method-specific sensitivity or weak evidence. Agreement on the same wrong task is systematic bias, not support for fingerprinting.
+For example, in `C -> A -> B`, the final sequential model is the checkpoint after B. The three bars for that order are the distances from this one final model to `Single-A`, `Single-B`, and `Single-C`. The final sequential model itself is not one of the bars.
 
-## Forgetting
+The x-axis lists sequential orders. The y-axis is Euclidean L2 weight distance. The upper panel uses all model parameters, including task heads; the lower panel uses only the shared backbone and excludes task-specific classifier heads. Colors identify the single-task reference. The black outline marks the reference whose task equals the actual last task.
 
-`forgetting_by_order.png/.pdf` gives one panel per order. The x-axis is task and the y-axis is
+Lower distance means greater parameter similarity, so the prediction rule selects the smallest bar for each order. The raw distances show whether a prediction is supported by a clear separation or only by a very small difference between references.
 
-$$\operatorname{forgetting}(t) = \operatorname{accuracy\ after\ learning\ }t - \operatorname{final\ accuracy\ on\ }t.$$
+## 4. CKA Similarity
 
-Positive values indicate forgetting, zero means no change, and negative values mean final accuracy improved. Colors identify tasks and the black outline marks the actual last task. This is supporting evidence about sequential-learning dynamics, not a direct last-task classifier. For example, lower forgetting of the final task can help explain a representation pattern, but it does not itself predict recency.
+![CKA similarity](../figures/combined/cka_similarity.png)
 
-## Loss Barriers
+Each panel compares one final sequential model with the single-task reference representations on the fixed representation probe:
 
-`loss_barrier_curves.png/.pdf` contains one panel per order. It evaluates the **actual last task** while interpolating weights between the final sequential model and each single-task reference. The x-axis is interpolation alpha, where $\alpha=0$ is the reference model and $\alpha=1$ is the final sequential model; the y-axis is loss. Colored curves identify `Single-<task>` references, and dashed vertical lines mark both endpoints.
+```text
+CKA(final sequential model, Single-A)
+CKA(final sequential model, Single-B)
+CKA(final sequential model, Single-C)
+```
 
-`loss_barrier_height.png/.pdf` and `loss_barrier_area.png/.pdf` summarize the same actual-last-task slice. Rows are sequential orders, columns are reference models, and black cell outlines identify the reference for the actual last task. Barrier height is the maximum loss above the endpoint reference level; barrier area summarizes excess loss over the interpolation path. Lower or otherwise distinctive barriers may show geometric relationships to a reference, but neither metric is a last-task classifier here because no prediction rule has been defined or validated for it.
+The probe is the stored representation probe set and uses deterministic CIFAR-100 test images selected by the project. The x-axis is reference task and the y-axis is linear CKA. Colors identify reference tasks. The black outline marks the single-task reference corresponding to the actual last task.
 
-## Jacobian Sensitivity
+Higher CKA means more similar representations, so the prediction rule selects the highest bar. A consistent pattern where the actual-last-task reference has the highest CKA would support the last-task fingerprinting hypothesis.
 
-`jacobian_sensitivity_by_order.png/.pdf` shows mean Jacobian sensitivity of each sequential model on each task. The x-axis is task and the y-axis is mean sensitivity; colors identify tasks and black outlines mark the actual last task. Jacobian sensitivity measures how much model output changes for changes in the input. Elevated sensitivity for the last task may be diagnostically interesting, but higher sensitivity does not automatically mean more recently learned.
+## 5. Feature Drift
 
-`jacobian_vs_single_references.png/.pdf` keeps task identity explicit. Each panel evaluates one task; bars give the sequential model's mean sensitivity by order and colored lines show each single-task reference. It helps assess whether sequential sensitivity resembles a particular reference, without collapsing tasks into a single average.
+![Feature drift](../figures/combined/feature_drift.png)
 
-`jacobian_channel_sensitivity.png/.pdf` is a diagnostic heatmap. Rows are `order / task`, columns are R, G, and B input channels, and values are channel sensitivities. It may reveal channel-specific effects, but is not a direct recency classifier. All Jacobian figures are supporting evidence unless a separate, validated prediction rule is introduced.
+This figure uses the same model relationship as the CKA figure, but the metric is feature drift:
 
-## Research Summary
+```text
+drift(final sequential model, Single-A)
+drift(final sequential model, Single-B)
+drift(final sequential model, Single-C)
+```
 
-`research_summary.png/.pdf` is the compact thesis-oriented overview. Its chart reports accuracy, the dynamically computed Always-A baseline, and correct predictions out of the total number of orders. The table reports each method's prediction distribution over tasks.
+Feature drift is implemented as the mean L2 distance between normalized feature vectors. The x-axis is reference task and the y-axis is feature drift. Colors identify reference tasks. The black outline marks the reference for the actual last task; for `C -> A -> B`, this is the `Single-B` comparison.
 
-The distribution is essential: 33.3% can result from always predicting A in this balanced six-order experiment, so accuracy alone does not show recovery of training order. A useful method needs both correct predictions and a distribution that tracks the actual last tasks.
+Lower drift means more similar representations, so the prediction rule selects the lowest bar. CKA and feature drift are related representation comparisons, but they are not identical measurements.
 
-## Interpreting the Suite
+## 6. Forgetting
 
-**Stronger evidence** for the last-task fingerprinting hypothesis would be accuracy clearly above the Always-A baseline, predictions spread according to actual last tasks rather than concentrated on one task, numerical similarity scores consistently favoring the actual last task, and repetition of that pattern across orders.
+![Forgetting by order](../figures/combined/forgetting_by_order.png)
 
-**Weak evidence** includes 33.3% accuracy, prediction concentration on one task, small score differences between references, or strong disagreement among methods. Forgetting, loss barriers, and Jacobian sensitivity should explain model behavior rather than be treated automatically as classifiers. With only six sequential orders, conclusions should remain cautious and be tested on additional runs, seeds, tasks, or task orders.
+The project defines forgetting as:
+
+```text
+forgetting(task) = accuracy immediately after learning task - final accuracy on task
+```
+
+For an order `A -> B -> C`, the sequential evaluation code evaluates `A.pt`, `A_B.pt`, and `A_B_C.pt` on the tasks learned so far. For task A, forgetting is the accuracy of `A.pt` on A minus the accuracy of the final `A_B_C.pt` checkpoint on A. For task B, it is the accuracy of `A_B.pt` on B minus the final checkpoint accuracy on B. For task C, it is the accuracy of `A_B_C.pt` on C minus the final checkpoint accuracy on C.
+
+Evaluation uses the task-specific CIFAR-100 test subset via `create_task_dataloader(..., train=False)`, deterministic test preprocessing, and the evaluated task identifier, which selects the corresponding task-specific head.
+
+The x-axis is task and the y-axis is forgetting. Positive values mean performance decreased after later fine-tuning. Zero means unchanged accuracy. Negative values mean the final checkpoint performs better than the checkpoint immediately after that task was first learned. Forgetting is supporting evidence about sequential-learning dynamics, not a direct last-task classifier.
+
+## 7. Loss Barriers
+
+![Loss-barrier curves](../figures/combined/loss_barrier_curves.png)
+
+![Loss-barrier height](../figures/combined/loss_barrier_height.png)
+
+![Loss-barrier area](../figures/combined/loss_barrier_area.png)
+
+For each order, one final sequential model is interpolated separately with each single-task reference:
+
+```text
+Single-A  <->  final sequential model
+Single-B  <->  final sequential model
+Single-C  <->  final sequential model
+```
+
+For reference weights $W_R$ and final sequential weights $W_S$, the interpolation is:
+
+$$W(\alpha) = (1 - \alpha) W_R + \alpha W_S.$$
+
+Here, $\alpha=0$ is the single-task reference, $\alpha=1$ is the final sequential model, and intermediate values are interpolated weights. In the curve figure, all curves in a panel are evaluated on the actual last task for that order. For `C -> A -> B`, the final C->A->B model is interpolated separately with `Single-A`, `Single-B`, and `Single-C`, and all three curves use task B loss.
+
+The heatmaps summarize the same reference-to-final-sequential comparisons. Rows are orders, columns are single-task references, and every value in a row is evaluated on that row's actual last task. The black outline marks the actual-last-task reference. The sequential model is involved in every cell of its row.
+
+Barrier height is implemented as `max(losses) - min(losses)` along the sampled interpolation curve. Barrier area is implemented as trapezoidal area under the sampled loss curve. These figures support interpretation of loss-landscape relationships; they are not last-task classifiers because no prediction rule is defined for them.
+
+## 8. Jacobian Sensitivity
+
+![Jacobian sensitivity by order](../figures/combined/jacobian_sensitivity_by_order.png)
+
+![Jacobian vs single references](../figures/combined/jacobian_vs_single_references.png)
+
+![Jacobian channel sensitivity](../figures/combined/jacobian_channel_sensitivity.png)
+
+For each order there is one final sequential model. In `jacobian_sensitivity_by_order.png`, that same model is evaluated separately on each task:
+
+```text
+same final sequential model
+   |-- sensitivity on task A
+   |-- sensitivity on task B
+   |-- sensitivity on task C
+```
+
+Mean sensitivity is computed from input-output Jacobians. The implementation differentiates the predicted class logit with respect to each input image, flattens the gradient tensor, computes its L2 norm per image, and averages those norms across the analyzed batch. The Jacobian analysis uses up to the configured maximum number of CIFAR-100 test images per model and task.
+
+In the first Jacobian figure, the x-axis is evaluated task and the y-axis is mean sensitivity. The black outline marks the actual last task. In `jacobian_vs_single_references.png`, each panel corresponds to one task evaluation for the final sequential models. The bars are final sequential models for each order, while the colored lines are single-reference own-task baselines as stored in the JSON. The channel-sensitivity heatmap has rows `order / task`, columns R/G/B, and values equal to mean absolute Jacobian magnitude for that input channel after averaging across images and spatial positions.
+
+Higher sensitivity does not automatically imply that a task was learned more recently. These figures are diagnostic/supporting evidence, not fingerprint classifiers.
+
+## 9. Research Summary
+
+![Research summary](../figures/combined/research_summary.png)
+
+This compact overview repeats the direct fingerprinting accuracy results, the computed always-one-task reference line, the number of correct predictions out of the total evaluated orders, and each method's prediction distribution across tasks.
+
+The prediction distribution is important. A method is more convincing if it identifies the actual last task across different orders, not if it repeatedly selects one task and happens to match a baseline.
+
+## Example: C -> A -> B
+
+C is learned first, A second, and B last, so the actual last task is B. The final sequential model is the checkpoint after all three stages.
+
+In the weight-distance, CKA, and feature-drift figures, this one final C->A->B model is compared with `Single-A`, `Single-B`, and `Single-C`. The `Single-B` comparison is outlined because B is the actual-last-task reference. The outlined bar is still a comparison to a single-task reference, not the sequential model itself.
+
+In the loss-barrier curves, the final C->A->B model is interpolated separately with `Single-A`, `Single-B`, and `Single-C`, while all three curves are evaluated using task B loss. In the Jacobian figure, the final C->A->B model is evaluated for sensitivity on tasks A, B, and C; B is highlighted because it was learned last.
+
+## Current Combined-Analysis Observation
+
+These observations are calculated from the current `results/combined/combined_analysis.json`; they are not general claims about future experiments.
+
+- Sequential orders: 6
+- Discovered tasks: A, B, C
+- Actual last-task distribution: A=2, B=2, C=2
+- Always-A reference accuracy for the current order set: 2/6 = 33.3%
+- Full-model weight distance: 0/6 correct, 0.0% accuracy, predictions A=2, B=2, C=2
+- Backbone weight distance: 0/6 correct, 0.0% accuracy, predictions A=2, B=2, C=2
+- CKA: 5/6 correct, 83.3% accuracy, predictions A=1, B=2, C=3
+- Feature drift: 2/6 correct, 33.3% accuracy, predictions A=2, B=1, C=3
+
+## Overall Interpretation
+
+Direct fingerprinting evidence comes from prediction accuracy, the prediction matrix, raw weight-distance scores, raw CKA scores, and raw feature-drift scores. Stronger evidence would mean accuracy clearly above the computed reference, predictions distributed according to actual last tasks, numerical scores consistently favoring the actual-last-task reference, and consistency across orders.
+
+Weak evidence includes baseline-level accuracy, repeated prediction of one task, weak separation between reference scores, or strong disagreement between methods. Forgetting, loss barriers, Jacobian sensitivity, and RGB channel sensitivity should be used to explain model behavior rather than treated as classifiers. For the current six-order experiment, conclusions should remain cautious and should ideally be checked with additional tasks, orders, seeds, or reruns.

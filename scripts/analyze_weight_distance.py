@@ -24,14 +24,10 @@ from sequential_finetuning.analysis.weight_distance import (
     predict_closest_task,
 )
 from sequential_finetuning.checkpoint import (
-    load_checkpoint,
     load_model_from_checkpoint,
 )
 from sequential_finetuning.config import (
     load_config,
-)
-from sequential_finetuning.model import (
-    ResNet18MultiTask,
 )
 from sequential_finetuning.training_utils import (
     get_device,

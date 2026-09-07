@@ -21,7 +21,6 @@ if str(PROJECT_ROOT) not in sys.path:
 # ============================================================
 
 from sequential_finetuning.checkpoint import (
-    load_checkpoint,
     load_model_from_checkpoint,
 )
 from sequential_finetuning.config import (
@@ -35,9 +34,6 @@ from sequential_finetuning.evaluation import (
 )
 from sequential_finetuning.forgetting import (
     calculate_forgetting,
-)
-from sequential_finetuning.model import (
-    ResNet18MultiTask,
 )
 
 # ============================================================

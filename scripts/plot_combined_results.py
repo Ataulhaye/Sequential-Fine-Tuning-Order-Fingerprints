@@ -10,7 +10,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import ListedColormap
-from matplotlib.patches import Rectangle
+from matplotlib.patches import Patch, Rectangle
 
 ROOT = Path(__file__).resolve().parents[1]
 RESULT = ROOT / "results" / "combined" / "combined_analysis.json"
@@ -206,9 +206,13 @@ def baseline(orders, tasks):
 def save(figure, stem):
     figure.tight_layout()
     filenames = []
-    for suffix in ["png"]:  # , "pdf"
+    # , "pdf"
+    for suffix in ["png"]:
         filename = f"{stem}.{suffix}"
-        figure.savefig(OUT / filename, dpi=300, bbox_inches="tight")
+        path = OUT / filename
+        if path.exists():
+            path.unlink()
+        figure.savefig(path, dpi=300, bbox_inches="tight")
         filenames.append(filename)
     plt.close(figure)
     return filenames
@@ -276,14 +280,15 @@ def plot_accuracy(orders, tasks):
 
 
 def plot_prediction_matrix(orders):
-    columns = ["Actual last task"] + [name for name, _, _ in METHODS]
+    columns = [name for name, _, _ in METHODS]
     labels = [
-        [order["actual_last_task"]]
-        + [predicted(order, method) for _, method, _ in METHODS]
-        for order in orders
+        [predicted(order, method) for _, method, _ in METHODS] for order in orders
     ]
     values = np.array(
-        [[1] + [int(value == row[0]) for value in row[1:]] for row in labels]
+        [
+            [int(value == order["actual_last_task"]) for value in row]
+            for order, row in zip(orders, labels)
+        ]
     )
     figure, axis = plt.subplots(figsize=(11, max(4.5, len(orders) * 0.65 + 1.5)))
     axis.imshow(
@@ -294,8 +299,14 @@ def plot_prediction_matrix(orders):
         aspect="auto",
     )
     axis.set_xticks(range(len(columns)), columns, rotation=20, ha="right")
-    axis.set_yticks(range(len(orders)), [order_label(order) for order in orders])
-    axis.set_title("Predicted last task by sequential order")
+    axis.set_yticks(
+        range(len(orders)),
+        [
+            f"{order_label(order)} (actual last: {order['actual_last_task']})"
+            for order in orders
+        ],
+    )
+    axis.set_title("Predicted last task by method")
     for row, labels_row in enumerate(labels):
         for column, value in enumerate(labels_row):
             axis.text(column, row, value, ha="center", va="center", fontweight="bold")
@@ -329,12 +340,16 @@ def plot_weight(orders, tasks, colors):
         axis.set_title(title)
         axis.set_ylabel("Weight distance")
         axis.grid(axis="y", alpha=0.25)
-        axis.legend(ncol=len(tasks))
+        handles, labels = axis.get_legend_handles_labels()
+        handles.append(Patch(facecolor="white", edgecolor="black", linewidth=2))
+        labels.append("Black outline = actual-last-task reference")
+        axis.legend(handles, labels, ncol=min(len(labels), 4), fontsize=8)
     axes[-1].set_xticks(
         x, [order_label(order) for order in orders], rotation=18, ha="right"
     )
     figure.suptitle(
-        "Distance to single-task references (black outline = actual last task)", y=1.01
+        "Distance from each final sequential model to single-task references",
+        y=1.01,
     )
     return save(figure, "weight_distance_scores")
 
@@ -357,43 +372,16 @@ def plot_representation(orders, tasks, colors, key, title, stem, direction):
                 fontsize=8,
             )
         axis.set_title(
-            f"{order_label(order)} (last: {order['actual_last_task']})", fontsize=10
+            f"{order_label(order)} (actual last: {order['actual_last_task']})",
+            fontsize=10,
         )
         axis.grid(axis="y", alpha=0.25)
     axes[0].set_ylabel("Score")
     figure.suptitle(
-        f"{title} by final sequential model ({direction} = greater similarity; black = actual last task)",
+        f"{title}: final sequential model vs single-task references ({direction} = greater similarity; black outline = actual-last-task reference)",
         y=1.01,
     )
     return save(figure, stem)
-
-
-def plot_agreement(orders, tasks, colors):
-    text = [[predicted(order, method) for _, method, _ in METHODS] for order in orders]
-    values = np.array([[tasks.index(value) for value in row] for row in text])
-    figure, axis = plt.subplots(figsize=(8.5, max(4.5, len(orders) * 0.65 + 1.5)))
-    axis.imshow(
-        values,
-        cmap=ListedColormap([colors[task] for task in tasks]),
-        vmin=0,
-        vmax=max(1, len(tasks) - 1),
-        aspect="auto",
-    )
-    axis.set_xticks(
-        range(len(METHODS)), [name for name, _, _ in METHODS], rotation=20, ha="right"
-    )
-    axis.set_yticks(
-        range(len(orders)),
-        [
-            f"{order_label(order)} (actual: {order['actual_last_task']})"
-            for order in orders
-        ],
-    )
-    axis.set_title("Method agreement on predicted last task")
-    for row, text_row in enumerate(text):
-        for column, value in enumerate(text_row):
-            axis.text(column, row, value, ha="center", va="center", fontweight="bold")
-    return save(figure, "method_agreement")
 
 
 def plot_forgetting(orders, tasks, colors):
@@ -409,7 +397,8 @@ def plot_forgetting(orders, tasks, colors):
         bars[last].set_linewidth(2.3)
         axis.axhline(0, color="black", linewidth=0.8)
         axis.set_title(
-            f"{order_label(order)} (last: {order['actual_last_task']})", fontsize=10
+            f"{order_label(order)} (actual last: {order['actual_last_task']})",
+            fontsize=10,
         )
         axis.grid(axis="y", alpha=0.25)
     axes[0].set_ylabel("Forgetting")
@@ -439,7 +428,7 @@ def plot_loss(orders, tasks, colors, metric=None):
             values,
             [order_label(order) for order in orders],
             references,
-            f"{metric.replace('_', ' ').title()} on actual last task",
+            f"{metric.replace('_', ' ').title()} for reference ↔ final sequential interpolation, evaluated on actual last task",
             [order["actual_last_task"] for order in orders],
             "magma",
         )
@@ -461,12 +450,15 @@ def plot_loss(orders, tasks, colors, metric=None):
             )
         axis.axvline(0, color="black", linestyle="--", linewidth=0.8)
         axis.axvline(1, color="black", linestyle="--", linewidth=0.8)
-        axis.set_title(f"{order_label(order)}; evaluate task {actual}", fontsize=10)
+        axis.set_title(f"{order_label(order)}; actual last task: {actual}", fontsize=10)
         axis.set_xlabel("Alpha (0 = reference, 1 = sequential)")
         axis.set_ylabel("Loss")
         axis.grid(alpha=0.25)
-        axis.legend(fontsize=8)
-    figure.suptitle("Loss-barrier curves on the actual last task", y=1.01)
+        axis.legend(fontsize=8, title="Reference model")
+    figure.suptitle(
+        "Loss interpolation: each Single-task reference ↔ the final sequential model",
+        y=1.01,
+    )
     return save(figure, "loss_barrier_curves")
 
 
@@ -493,12 +485,13 @@ def plot_jacobian(orders, tasks, colors):
         bars[last].set_edgecolor("black")
         bars[last].set_linewidth(2.3)
         axis.set_title(
-            f"{order_label(order)} (last: {order['actual_last_task']})", fontsize=10
+            f"{order_label(order)} (actual last: {order['actual_last_task']})",
+            fontsize=10,
         )
         axis.grid(axis="y", alpha=0.25)
     axes[0].set_ylabel("Mean sensitivity")
     figure.suptitle(
-        "Sequential-model Jacobian sensitivity (black outline = actual last task)",
+        "Final sequential model sensitivity by evaluated task (black outline = actual last task)",
         y=1.01,
     )
     return save(figure, "jacobian_sensitivity_by_order")
@@ -531,7 +524,7 @@ def plot_jacobian_references(orders, tasks, colors):
                 marker="o",
                 linewidth=1.4,
                 color=colors[reference],
-                label=reference_name(reference),
+                label=f"{reference_name(reference)} (own task {reference})",
             )
         axis.set_xticks(
             x,
@@ -540,12 +533,13 @@ def plot_jacobian_references(orders, tasks, colors):
             ha="right",
             fontsize=8,
         )
-        axis.set_title(f"Evaluation task {task}")
+        axis.set_title(f"Sequential models evaluated on task {task}")
         axis.set_ylabel("Mean sensitivity")
         axis.grid(axis="y", alpha=0.25)
     axes[-1].legend(fontsize=8)
     figure.suptitle(
-        "Sequential model compared with single-task Jacobian references", y=1.03
+        "Mean Jacobian sensitivity: sequential task evaluations and single-reference own-task baselines",
+        y=1.03,
     )
     return save(figure, "jacobian_vs_single_references")
 
@@ -634,7 +628,6 @@ def main():
         "feature_drift",
         "lower",
     )
-    generated += plot_agreement(orders, tasks, colors)
     generated += plot_forgetting(orders, tasks, colors)
     generated += plot_loss(orders, tasks, colors)
     generated += plot_loss(orders, tasks, colors, "barrier_height")
