@@ -247,20 +247,37 @@ def save(figure, stem, mode_specific=False):
     return filenames
 
 
-def heatmap(axis, values, rows, columns, title, actual_tasks=None, cmap="YlGnBu"):
+def heatmap(
+    axis,
+    values,
+    rows,
+    columns,
+    title,
+    actual_tasks=None,
+    cmap="YlGnBu",
+    text_color=None,
+):
     image = axis.imshow(values, aspect="auto", cmap=cmap)
     axis.set_xticks(range(len(columns)), columns, rotation=20, ha="right")
     axis.set_yticks(range(len(rows)), rows)
     axis.set_title(title)
+    norm = image.norm
+
     for row in range(values.shape[0]):
         for column in range(values.shape[1]):
+            value = values[row, column]
+            if text_color is None:
+                color = "white" if norm(value) < 0.7 else "black"
+            else:
+                color = text_color
             axis.text(
                 column,
                 row,
-                f"{values[row, column]:.3f}",
+                f"{value:.3f}",
                 ha="center",
                 va="center",
                 fontsize=8,
+                color=color,
             )
         if actual_tasks is not None:
             column = (
@@ -594,6 +611,7 @@ def plot_channels(orders, tasks):
         rows,
         ["R", "G", "B"],
         "Sequential-model RGB channel sensitivity",
+        text_color="black",
     )
     figure.colorbar(image, ax=axis, label="Channel sensitivity")
     return save(figure, "jacobian_channel_sensitivity")
