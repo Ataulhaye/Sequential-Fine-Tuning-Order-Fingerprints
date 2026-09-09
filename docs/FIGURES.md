@@ -30,9 +30,7 @@ The dashed line is computed from the loaded orders as an always-one-task referen
 
 Each row is one sequential order. The actual last task is shown in the row label. The columns contain the task predicted by each fingerprinting method.
 
-The cells contain task labels, not model identities or model weights. Green cells are correct predictions and red cells are incorrect predictions. Repeated labels down a column indicate that a method may be selecting the same task repeatedly rather than recovering the true final task. Differences across columns show disagreement between methods.
-
-This figure is useful because accuracy alone can hide systematic prediction patterns. A method can match a simple baseline by repeatedly selecting one task, so the predicted labels should always be compared with the actual-last-task labels in the rows.
+The cells contain task labels, not model identities or model weights. Green cells are correct predictions and red cells are incorrect predictions. 
 
 ## 3. Weight-Distance Scores
 
