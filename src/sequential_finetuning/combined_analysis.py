@@ -82,6 +82,9 @@ def combine_order_results(
             },
         },
         "representation": {
+            "evaluation_set": representation_results.get("evaluation_set", {}).get(
+                "mode", "probe"
+            ),
             "cka": {
                 task: representation["comparisons"][task]["cka"]
                 for task in representation["comparisons"]
@@ -137,5 +140,8 @@ def combine_all_results(
 
     return {
         "analysis": "combined",
+        "representation_evaluation_set": representation_results.get(
+            "evaluation_set", {}
+        ),
         "orders": combined_orders,
     }

@@ -107,6 +107,7 @@ experiment:
 
 representation:
   probe:
+    # true: use the existing fixed probe; false: use all project-class test images.
     enabled: true
     type: "all_project_classes"
     samples_per_class: 20

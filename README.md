@@ -101,7 +101,7 @@ The project compares sequential final models against single-task references usin
 
 **Definition:** Sample-wise L2 distance between normalized features
 - Measures how individual feature vectors changed
-- Computed on the same fixed probe as CKA
+- Computed on the same representation evaluation set as CKA
 - Low drift → representation unchanged
 
 **Prediction Rule:** Minimum drift indicates last task
@@ -128,6 +128,19 @@ To ensure fair representation comparisons across all models, a **fixed, determin
 The probe is created with `python scripts/create_probe.py` and stored in `results/representation/probe_set.json`.
 
 **Critical:** Never recreate the probe unless explicitly intended. Reuse ensures that all models are evaluated on the identical set of images, making results comparable.
+
+### 6.1 Switching Between Probe and All-Test Evaluation Sets
+
+`configs/experiment.yaml` controls which images CKA and feature drift use:
+
+```yaml
+representation:
+  probe:
+    enabled: true   # true: use the fixed probe above; false: use every project-class test image
+```
+
+- `enabled: true` (default): unchanged probe behavior described above.
+- `enabled: false`: uses every CIFAR-100 test image belonging to the 15 configured project classes (1,500 images), with no subsampling. The same images are reused for the sequential model and every Single-task reference.
 
 ## 7. Forgetting Metric
 

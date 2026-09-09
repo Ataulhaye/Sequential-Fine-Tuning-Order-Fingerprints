@@ -10,7 +10,11 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from sequential_finetuning.checkpoint import load_model_from_checkpoint
 from sequential_finetuning.config import load_config
-from sequential_finetuning.dataset import create_probe_loader
+from sequential_finetuning.dataset import (
+    create_all_test_loader,
+    create_probe_loader,
+    get_project_classes,
+)
 from sequential_finetuning.probe import load_probe
 from sequential_finetuning.representation import (
     compare_representations,
@@ -120,30 +124,67 @@ def main():
     config = load_config("configs/experiment.yaml")
     device = get_device()
 
-    probe_path = Path(config["paths"]["results"]) / "representation" / "probe_set.json"
-    probe = load_probe(probe_path)
+    probe_enabled = config["representation"]["probe"]["enabled"]
+    if not isinstance(probe_enabled, bool):
+        raise ValueError("representation.probe.enabled must be true or false.")
+    representation_mode = "probe" if probe_enabled else "all_test"
 
-    # Standardized loader instantiation
-    probe_loader = create_probe_loader(
-        dataset_root=config["dataset"]["root"],
-        probe_indices=probe["all_indices"],
-        batch_size=config["training"]["batch_size"],
-        num_workers=config["training"]["num_workers"],
-    )
+    representation_root = Path(config["paths"]["results"]) / "representation"
+    if representation_mode == "probe":
+        probe_path = representation_root / "probe_set.json"
+        probe = load_probe(probe_path)
+        representation_loader = create_probe_loader(
+            dataset_root=config["dataset"]["root"],
+            probe_indices=probe["all_indices"],
+            batch_size=config["training"]["batch_size"],
+            num_workers=config["training"]["num_workers"],
+        )
+        evaluation_metadata = {
+            "mode": "probe",
+            "num_samples": len(probe["all_indices"]),
+            "num_classes": probe["num_classes"],
+            "samples_per_class": probe["samples_per_class"],
+            "seed": probe["seed"],
+            "classes": probe["classes"],
+        }
+    else:
+        project_classes = get_project_classes(config["tasks"])
+        representation_loader, all_test_indices = create_all_test_loader(
+            dataset_root=config["dataset"]["root"],
+            classes=project_classes,
+            batch_size=config["training"]["batch_size"],
+            num_workers=config["training"]["num_workers"],
+        )
+        evaluation_metadata = {
+            "mode": "all_test",
+            "num_samples": len(all_test_indices),
+            "num_classes": len(project_classes),
+            "classes": project_classes,
+        }
 
-    single_features = load_single_task_features(config, device, probe_loader)
+    print("\nRepresentation evaluation set:")
+    print(f"  mode: {evaluation_metadata['mode']}")
+    print(f"  classes: {evaluation_metadata['num_classes']}")
+    print(f"  samples: {evaluation_metadata['num_samples']}")
+    if evaluation_metadata["mode"] == "probe":
+        print(f"  samples_per_class: {evaluation_metadata['samples_per_class']}")
+        print(f"  seed: {evaluation_metadata['seed']}")
+
+    single_features = load_single_task_features(config, device, representation_loader)
 
     all_results = []
     for order in config["experiment"]["sequential_orders"]:
-        result = analyze_order(order, config, device, probe_loader, single_features)
+        result = analyze_order(
+            order, config, device, representation_loader, single_features
+        )
         all_results.append(result)
 
     # Save output summary
-    result_dir = Path(config["paths"]["results"]) / "representation"
+    result_dir = representation_root / evaluation_metadata["mode"]
     result_dir.mkdir(parents=True, exist_ok=True)
 
     results = {
-        "probe": {"num_samples": probe["num_samples"], "seed": probe["seed"]},
+        "evaluation_set": evaluation_metadata,
         "orders": all_results,
     }
 

@@ -113,7 +113,9 @@ Each checkpoint contains:
 **Inputs:**
 - `configs/experiment.yaml`
 - All sequential checkpoints (from STEP 3)
-- Single-task checkpoints (from STEP 2)
+
+Note: Single-task checkpoints (from STEP 2) are not used by this script;
+they are used later by representation analysis and weight-distance analysis.
 
 **Produces:**
 ```

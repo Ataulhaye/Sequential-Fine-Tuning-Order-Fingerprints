@@ -8,9 +8,13 @@ A sequential order such as `A -> B -> C` means that the model is trained on A, t
 
 The direct fingerprinting figures compare the final sequential model with single-task reference models. A `Single-A` model is trained only on task A, `Single-B` only on B, and so on. A black outline marks the task or single-task reference corresponding to the actual last task. The outline is a visual marker; it is not an additional model and it does not mean that the outlined bar is the sequential model.
 
+**Representation evaluation set:** `scripts/plot_combined_results.py` writes figures to `figures/` and append in the name probe or test_all in the image names. Figures whose scores depend on the representation evaluation set (accuracy, prediction matrix, CKA, feature drift, research summary) also print the mode and sample count in their titles.
+
 ## 1. Last-Task Prediction Accuracy
 
-![Last-task prediction accuracy](../figures/combined/last_task_prediction_accuracy.png)
+![Last-task prediction accuracy](../figures/last_task_prediction_accuracy_all_test.png)
+
+![Last-task prediction accuracy](../figures/last_task_prediction_accuracy_probe.png)
 
 This is the main fingerprinting result. Each method predicts the most recent task for every final sequential model, and the bar height is the percentage of correct predictions across the evaluated orders.
 
@@ -20,7 +24,9 @@ The dashed line is computed from the loaded orders as an always-one-task referen
 
 ## 2. Last-Task Predictions by Method
 
-![Prediction matrix](../figures/combined/prediction_matrix.png)
+![Prediction matrix](../figures/prediction_matrix_all_test.png)
+
+![Prediction matrix](../figures/prediction_matrix_probe.png)
 
 Each row is one sequential order. The actual last task is shown in the row label. The columns contain the task predicted by each fingerprinting method.
 
@@ -30,7 +36,7 @@ This figure is useful because accuracy alone can hide systematic prediction patt
 
 ## 3. Weight-Distance Scores
 
-![Weight-distance scores](../figures/combined/weight_distance_scores.png)
+![Weight-distance scores](../figures/weight_distance_scores.png)
 
 For each sequential order there is one final sequential model. That same final model is compared separately with every single-task reference:
 
@@ -49,9 +55,11 @@ Lower distance means greater parameter similarity, so the prediction rule select
 
 ## 4. CKA Similarity
 
-![CKA similarity](../figures/combined/cka_similarity.png)
+![CKA similarity](../figures/cka_similarity_all_test.png)
 
-Each panel compares one final sequential model with the single-task reference representations on the fixed representation probe:
+![CKA similarity](../figures/cka_similarity_probe.png)
+
+Each panel compares one final sequential model with the single-task reference representations on the configured representation evaluation set. Set `representation.probe.enabled` to `true` for the existing fixed probe, or `false` for every CIFAR-100 test image in the configured project classes.
 
 ```text
 CKA(final sequential model, Single-A)
@@ -59,13 +67,15 @@ CKA(final sequential model, Single-B)
 CKA(final sequential model, Single-C)
 ```
 
-The probe is the stored representation probe set and uses deterministic CIFAR-100 test images selected by the project. The x-axis is reference task and the y-axis is linear CKA. Colors identify reference tasks. The black outline marks the single-task reference corresponding to the actual last task.
+The probe is the stored representation probe set and uses deterministic CIFAR-100 test images selected by the project. In all-test mode, the same deterministic ordering contains all 1,500 current project-class test images. The x-axis is reference task and the y-axis is linear CKA. Colors identify reference tasks. The black outline marks the single-task reference corresponding to the actual last task.
 
 Higher CKA means more similar representations, so the prediction rule selects the highest bar. A consistent pattern where the actual-last-task reference has the highest CKA would support the last-task fingerprinting hypothesis.
 
 ## 5. Feature Drift
 
-![Feature drift](../figures/combined/feature_drift.png)
+![Feature drift](../figures/feature_drift_all_test.png)
+
+![Feature drift](../figures/feature_drift_probe.png)
 
 This figure uses the same model relationship as the CKA figure, but the metric is feature drift:
 
@@ -77,11 +87,11 @@ drift(final sequential model, Single-C)
 
 Feature drift is implemented as the mean L2 distance between normalized feature vectors. The x-axis is reference task and the y-axis is feature drift. Colors identify reference tasks. The black outline marks the reference for the actual last task; for `C -> A -> B`, this is the `Single-B` comparison.
 
-Lower drift means more similar representations, so the prediction rule selects the lowest bar. CKA and feature drift are related representation comparisons, but they are not identical measurements.
+Lower drift means more similar representations, so the prediction rule selects the lowest bar. CKA and feature drift are related representation comparisons, but they are not identical measurements. Both use the same configured evaluation set and record its mode and size in the representation result.
 
 ## 6. Forgetting
 
-![Forgetting by order](../figures/combined/forgetting_by_order.png)
+![Forgetting by order](../figures/forgetting_by_order.png)
 
 The project defines forgetting as:
 
@@ -97,11 +107,11 @@ The x-axis is task and the y-axis is forgetting. Positive values mean performanc
 
 ## 7. Loss Barriers
 
-![Loss-barrier curves](../figures/combined/loss_barrier_curves.png)
+![Loss-barrier curves](../figures/loss_barrier_curves.png)
 
-![Loss-barrier height](../figures/combined/loss_barrier_height.png)
+![Loss-barrier height](../figures/loss_barrier_height.png)
 
-![Loss-barrier area](../figures/combined/loss_barrier_area.png)
+![Loss-barrier area](../figures/loss_barrier_area.png)
 
 For each order, one final sequential model is interpolated separately with each single-task reference:
 
@@ -123,11 +133,11 @@ Barrier height is implemented as `max(losses) - min(losses)` along the sampled i
 
 ## 8. Jacobian Sensitivity
 
-![Jacobian sensitivity by order](../figures/combined/jacobian_sensitivity_by_order.png)
+![Jacobian sensitivity by order](../figures/jacobian_sensitivity_by_order.png)
 
-![Jacobian vs single references](../figures/combined/jacobian_vs_single_references.png)
+![Jacobian vs single references](../figures/jacobian_vs_single_references.png)
 
-![Jacobian channel sensitivity](../figures/combined/jacobian_channel_sensitivity.png)
+![Jacobian channel sensitivity](../figures/jacobian_channel_sensitivity.png)
 
 For each order there is one final sequential model. In `jacobian_sensitivity_by_order.png`, that same model is evaluated separately on each task:
 
@@ -146,7 +156,9 @@ Higher sensitivity does not automatically imply that a task was learned more rec
 
 ## 9. Research Summary
 
-![Research summary](../figures/combined/research_summary.png)
+![Research summary](../figures/research_summary_all_test.png)
+
+![Research summary](../figures/research_summary_probe.png)
 
 This compact overview repeats the direct fingerprinting accuracy results, the computed always-one-task reference line, the number of correct predictions out of the total evaluated orders, and each method's prediction distribution across tasks.
 

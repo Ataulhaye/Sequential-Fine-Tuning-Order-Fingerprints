@@ -52,7 +52,15 @@ def main():
 
     weight_path = result_root / "weight_distance" / "weight_distance.json"
 
-    representation_path = result_root / "representation" / "representation.json"
+    probe_enabled = config["representation"]["probe"]["enabled"]
+    if not isinstance(probe_enabled, bool):
+        raise ValueError("representation.probe.enabled must be true or false.")
+    representation_mode = "probe" if probe_enabled else "all_test"
+    representation_path = (
+        result_root / "representation" / representation_mode / "representation.json"
+    )
+    if not representation_path.exists() and representation_mode == "probe":
+        representation_path = result_root / "representation" / "representation.json"
 
     loss_barrier_path = result_root / "loss_barrier" / "loss_barrier.json"
 
@@ -226,7 +234,7 @@ def main():
     # Save
     # --------------------------------------------------------
 
-    output_dir = result_root / "combined"
+    output_dir = result_root / "combined" / representation_mode
 
     output_dir.mkdir(
         parents=True,

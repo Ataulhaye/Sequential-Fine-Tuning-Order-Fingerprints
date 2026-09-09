@@ -10,7 +10,11 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from sequential_finetuning.checkpoint import load_model_from_checkpoint
 from sequential_finetuning.config import load_config
-from sequential_finetuning.dataset import create_probe_loader
+from sequential_finetuning.dataset import (
+    create_all_test_loader,
+    create_probe_loader,
+    get_project_classes,
+)
 from sequential_finetuning.probe import load_probe
 from sequential_finetuning.representation import (
     compare_representations,
@@ -33,30 +37,44 @@ def main():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
     # --------------------------------------------------------
-    # Load fixed probe
+    # Load representation evaluation set (probe or all_test)
     # --------------------------------------------------------
 
-    probe_path = Path(config["paths"]["results"]) / "representation" / "probe_set.json"
-
-    probe = load_probe(probe_path)
-
-    probe_indices = probe["all_indices"]
+    probe_enabled = config["representation"]["probe"]["enabled"]
+    if not isinstance(probe_enabled, bool):
+        raise ValueError("representation.probe.enabled must be true or false.")
+    representation_mode = "probe" if probe_enabled else "all_test"
 
     print()
-    print("Probe:")
-    print(f"  Samples: {len(probe_indices)}")
-    print(f"  Seed:    {probe['seed']}")
+    print(f"Representation evaluation set mode: {representation_mode}")
 
-    # --------------------------------------------------------
-    # Probe loader
-    # --------------------------------------------------------
+    if representation_mode == "probe":
+        probe_path = (
+            Path(config["paths"]["results"]) / "representation" / "probe_set.json"
+        )
 
-    probe_loader = create_probe_loader(
-        dataset_root=config["dataset"]["root"],
-        probe_indices=probe_indices,
-        batch_size=config["training"]["batch_size"],
-        num_workers=config["training"]["num_workers"],
-    )
+        probe = load_probe(probe_path)
+
+        probe_indices = probe["all_indices"]
+
+        print(f"  Samples: {len(probe_indices)}")
+        print(f"  Seed:    {probe['seed']}")
+
+        probe_loader = create_probe_loader(
+            dataset_root=config["dataset"]["root"],
+            probe_indices=probe_indices,
+            batch_size=config["training"]["batch_size"],
+            num_workers=config["training"]["num_workers"],
+        )
+    else:
+        probe_loader, all_test_indices = create_all_test_loader(
+            dataset_root=config["dataset"]["root"],
+            classes=get_project_classes(config["tasks"]),
+            batch_size=config["training"]["batch_size"],
+            num_workers=config["training"]["num_workers"],
+        )
+
+        print(f"  Samples: {len(all_test_indices)}")
 
     # --------------------------------------------------------
     # Single-task checkpoints

@@ -1,6 +1,7 @@
 """Create research-focused visualizations from completed combined analysis results."""
 
 import json
+import sys
 from math import ceil
 from pathlib import Path
 
@@ -12,9 +13,24 @@ import numpy as np
 from matplotlib.colors import ListedColormap
 from matplotlib.patches import Patch, Rectangle
 
-ROOT = Path(__file__).resolve().parents[1]
-RESULT = ROOT / "results" / "combined" / "combined_analysis.json"
-OUT = ROOT / "figures" / "combined"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from sequential_finetuning.config import load_config
+
+ROOT = PROJECT_ROOT
+config = load_config(ROOT / "configs" / "experiment.yaml")
+probe_enabled = config["representation"]["probe"]["enabled"]
+if not isinstance(probe_enabled, bool):
+    raise ValueError("representation.probe.enabled must be true or false.")
+representation_mode = "probe" if probe_enabled else "all_test"
+RESULT = ROOT / "results" / "combined" / representation_mode / "combined_analysis.json"
+if not RESULT.exists() and representation_mode == "probe":
+    RESULT = ROOT / "results" / "combined" / "combined_analysis.json"
+
+REPRESENTATION_SUFFIX = f"_{representation_mode}"
+OUT = ROOT / "figures"
 METHODS = (
     ("Full-model weight distance", "full_model", "lower"),
     ("Backbone distance", "backbone", "lower"),
@@ -32,6 +48,17 @@ def require(condition, message):
 
 def order_label(order):
     return " -> ".join(order["order"])
+
+
+def format_evaluation_set_label(evaluation_set):
+    mode = evaluation_set.get("mode", representation_mode)
+    details = [
+        f"{evaluation_set[key]} {label}"
+        for key, label in (("num_samples", "samples"), ("num_classes", "classes"))
+        if key in evaluation_set
+    ]
+    suffix = f" ({', '.join(details)})" if details else ""
+    return f"representation evaluation set: {mode}{suffix}"
 
 
 def get_orders(results):
@@ -78,6 +105,7 @@ def load_validate(path):
     with path.open(encoding="utf-8") as file:
         results = json.load(file)
     orders = get_orders(results)
+    evaluation_set = results.get("representation_evaluation_set", {})
     tasks = get_tasks(orders)
     expected_references = {reference_name(task) for task in tasks}
 
@@ -178,7 +206,7 @@ def load_validate(path):
     print("Representation: complete")
     print(f"Loss barrier: {len(orders)}/{len(orders)}")
     print(f"Jacobian: {len(orders)}/{len(orders)}")
-    return orders, tasks
+    return orders, tasks, evaluation_set
 
 
 def predicted(order, method):
@@ -203,12 +231,13 @@ def baseline(orders, tasks):
     return task, accuracy
 
 
-def save(figure, stem):
+def save(figure, stem, mode_specific=False):
     figure.tight_layout()
     filenames = []
+    suffix_part = REPRESENTATION_SUFFIX if mode_specific else ""
     # , "pdf"
     for suffix in ["png"]:
-        filename = f"{stem}.{suffix}"
+        filename = f"{stem}{suffix_part}.{suffix}"
         path = OUT / filename
         if path.exists():
             path.unlink()
@@ -252,7 +281,7 @@ def heatmap(axis, values, rows, columns, title, actual_tasks=None, cmap="YlGnBu"
     return image
 
 
-def plot_accuracy(orders, tasks):
+def plot_accuracy(orders, tasks, evaluation_set):
     correct = accuracy_counts(orders)
     values = np.array(correct) * 100 / len(orders)
     baseline_task, baseline_accuracy = baseline(orders, tasks)
@@ -266,7 +295,9 @@ def plot_accuracy(orders, tasks):
     )
     axis.set_ylim(0, 100)
     axis.set_ylabel("Last-task prediction accuracy (%)")
-    axis.set_title("Last-task prediction accuracy")
+    axis.set_title(
+        f"Last-task prediction accuracy ({format_evaluation_set_label(evaluation_set)})"
+    )
     axis.legend()
     for bar, value in zip(bars, values):
         axis.text(
@@ -276,10 +307,10 @@ def plot_accuracy(orders, tasks):
             ha="center",
             fontweight="bold",
         )
-    return save(figure, "last_task_prediction_accuracy")
+    return save(figure, "last_task_prediction_accuracy", mode_specific=True)
 
 
-def plot_prediction_matrix(orders):
+def plot_prediction_matrix(orders, evaluation_set):
     columns = [name for name, _, _ in METHODS]
     labels = [
         [predicted(order, method) for _, method, _ in METHODS] for order in orders
@@ -306,11 +337,13 @@ def plot_prediction_matrix(orders):
             for order in orders
         ],
     )
-    axis.set_title("Predicted last task by method")
+    axis.set_title(
+        f"Predicted last task by method ({format_evaluation_set_label(evaluation_set)})"
+    )
     for row, labels_row in enumerate(labels):
         for column, value in enumerate(labels_row):
             axis.text(column, row, value, ha="center", va="center", fontweight="bold")
-    return save(figure, "prediction_matrix")
+    return save(figure, "prediction_matrix", mode_specific=True)
 
 
 def plot_weight(orders, tasks, colors):
@@ -354,7 +387,9 @@ def plot_weight(orders, tasks, colors):
     return save(figure, "weight_distance_scores")
 
 
-def plot_representation(orders, tasks, colors, key, title, stem, direction):
+def plot_representation(
+    orders, tasks, colors, key, title, stem, direction, evaluation_set
+):
     figure, axes = panel_axes(len(orders), sharey=True)
     for axis, order in zip(axes, orders):
         values = [order["representation"][key][task] for task in tasks]
@@ -378,10 +413,11 @@ def plot_representation(orders, tasks, colors, key, title, stem, direction):
         axis.grid(axis="y", alpha=0.25)
     axes[0].set_ylabel("Score")
     figure.suptitle(
-        f"{title}: final sequential model vs single-task references ({direction} = greater similarity; black outline = actual-last-task reference)",
-        y=1.01,
+        f"{title}: final sequential model vs single-task references ({direction} = greater similarity; black outline = actual-last-task reference)\n"
+        f"{format_evaluation_set_label(evaluation_set).capitalize()}",
+        y=1.03,
     )
-    return save(figure, stem)
+    return save(figure, stem, mode_specific=True)
 
 
 def plot_forgetting(orders, tasks, colors):
@@ -563,7 +599,7 @@ def plot_channels(orders, tasks):
     return save(figure, "jacobian_channel_sensitivity")
 
 
-def plot_summary(orders, tasks):
+def plot_summary(orders, tasks, evaluation_set):
     correct = accuracy_counts(orders)
     values = np.array(correct) * 100 / len(orders)
     baseline_task, baseline_accuracy = baseline(orders, tasks)
@@ -583,7 +619,9 @@ def plot_summary(orders, tasks):
     )
     axis.set_ylim(0, 100)
     axis.set_ylabel("Accuracy (%)")
-    axis.set_title("Last-task fingerprinting")
+    axis.set_title(
+        f"Last-task fingerprinting ({format_evaluation_set_label(evaluation_set)})"
+    )
     axis.legend(fontsize=8)
     for bar, value, count in zip(bars, values, correct):
         axis.text(
@@ -602,7 +640,7 @@ def plot_summary(orders, tasks):
         cellLoc="center",
         loc="center",
     )
-    return save(figure, "research_summary")
+    return save(figure, "research_summary", mode_specific=True)
 
 
 def main():
@@ -610,14 +648,21 @@ def main():
     if not RESULT.exists():
         raise FileNotFoundError(f"Combined result file not found: {RESULT}")
     plt.rcParams.update({"font.size": 10, "axes.titlesize": 12})
-    orders, tasks = load_validate(RESULT)
+    orders, tasks, evaluation_set = load_validate(RESULT)
     colors = task_colors(tasks)
     generated = []
-    generated += plot_accuracy(orders, tasks)
-    generated += plot_prediction_matrix(orders)
+    generated += plot_accuracy(orders, tasks, evaluation_set)
+    generated += plot_prediction_matrix(orders, evaluation_set)
     generated += plot_weight(orders, tasks, colors)
     generated += plot_representation(
-        orders, tasks, colors, "cka", "CKA similarity", "cka_similarity", "higher"
+        orders,
+        tasks,
+        colors,
+        "cka",
+        "CKA similarity",
+        "cka_similarity",
+        "higher",
+        evaluation_set,
     )
     generated += plot_representation(
         orders,
@@ -627,6 +672,7 @@ def main():
         "Feature drift",
         "feature_drift",
         "lower",
+        evaluation_set,
     )
     generated += plot_forgetting(orders, tasks, colors)
     generated += plot_loss(orders, tasks, colors)
@@ -635,7 +681,9 @@ def main():
     generated += plot_jacobian(orders, tasks, colors)
     generated += plot_jacobian_references(orders, tasks, colors)
     generated += plot_channels(orders, tasks)
-    generated += plot_summary(orders, tasks)
+    generated += plot_summary(orders, tasks, evaluation_set)
+    print(f"Figures use {format_evaluation_set_label(evaluation_set)}")
+    print(f"Output directory: {OUT}")
     print(f"Generated {len(generated)} research figure files successfully.")
     print("Generated filenames:")
     for filename in generated:

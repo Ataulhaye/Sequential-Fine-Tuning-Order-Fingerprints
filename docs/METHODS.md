@@ -180,6 +180,12 @@ All representation analyses (single-task, sequential, test) use the same `probe_
 - Prevents p-hacking through probe selection
 - Enables deterministic results
 
+### 7.1 Representation Evaluation-Set Modes
+
+`representation.probe.enabled` in `configs/experiment.yaml` selects the CKA/feature-drift evaluation set. `true` (default) preserves the probe behavior described above unchanged. `false` uses every CIFAR-100 test image belonging to the union of the configured task classes, currently 1,500 images across 15 classes, with no random subsampling and no training images. The complete set is constructed once, iterated in deterministic dataset order, and reused for the sequential model and all single-task references. Feature extraction remains batched, moving each batch to CPU before continuing, so the full test set does not need to reside on GPU at once.
+
+Probe mode is computationally cheaper.
+
 ---
 
 ## 8. Weight-Space Comparison

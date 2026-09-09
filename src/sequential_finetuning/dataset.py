@@ -235,3 +235,56 @@ def create_probe_loader(
         num_workers=num_workers,
         pin_memory=True,
     )
+
+
+def get_project_classes(tasks_config: Dict[str, List[str]]) -> List[str]:
+    """Return the unique configured project classes in task order."""
+    return list(
+        dict.fromkeys(
+            class_name
+            for task_classes in tasks_config.values()
+            for class_name in task_classes
+        )
+    )
+
+
+def create_all_test_loader(
+    dataset_root: str,
+    classes: List[str],
+    batch_size: int = 32,
+    num_workers: int = 0,
+    transform=None,
+) -> tuple[DataLoader, List[int]]:
+    """Create a deterministic loader for every test image in ``classes``."""
+    if transform is None:
+        transform = get_test_transform()
+
+    base_dataset = CIFAR100(
+        root=dataset_root,
+        train=False,
+        download=False,
+        transform=transform,
+    )
+    class_to_idx = {
+        class_name: idx for idx, class_name in enumerate(base_dataset.classes)
+    }
+    missing_classes = [
+        class_name for class_name in classes if class_name not in class_to_idx
+    ]
+    if missing_classes:
+        raise ValueError(f"Unknown CIFAR-100 classes: {missing_classes}")
+
+    selected_labels = {class_to_idx[class_name] for class_name in classes}
+    indices = [
+        index
+        for index, label in enumerate(base_dataset.targets)
+        if label in selected_labels
+    ]
+    loader = DataLoader(
+        Subset(base_dataset, indices),
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
+    )
+    return loader, indices
