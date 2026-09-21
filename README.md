@@ -2,6 +2,20 @@
 
 This project investigates whether a neural network trained on multiple tasks in sequence retains a measurable geometric fingerprint revealing the order in which tasks were learned.
 
+## Checkpoint Lineage
+
+Corrected experiments use one persisted initialization state at
+`checkpoints/verified_initialization/base_model.pt`. Single-task runs load that
+state before training. Each sequential stage explicitly reloads its parent
+checkpoint before training and records `initialization_id` and
+`parent_checkpoint` in the saved metadata.
+
+The corrected checkpoints are written below
+`checkpoints/verified_initialization/`, so the existing checkpoints and results
+remain unchanged. A fresh optimizer and scheduler are still created for each
+task, matching the previous methodology; only model-state initialization and
+lineage handling were made explicit.
+
 **Quick Links:**
 - **[WORKFLOW.md](docs/WORKFLOW.md)** — Complete step-by-step execution guide
 - **[METHODS.md](docs/METHODS.md)** — Detailed scientific methodology

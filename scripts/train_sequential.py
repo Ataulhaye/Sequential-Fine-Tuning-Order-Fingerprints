@@ -1,6 +1,10 @@
+import time
 from pathlib import Path
 
 from sequential_finetuning.checkpoint import (
+    create_model_from_initialization,
+    ensure_initialization_checkpoint,
+    load_checkpoint,
     save_checkpoint,
 )
 from sequential_finetuning.config import (
@@ -8,9 +12,6 @@ from sequential_finetuning.config import (
 )
 from sequential_finetuning.dataset import (
     create_task_dataloader,
-)
-from sequential_finetuning.model import (
-    ResNet18MultiTask,
 )
 from sequential_finetuning.seed import (
     set_seed,
@@ -21,7 +22,6 @@ from sequential_finetuning.train import (
 from sequential_finetuning.training_utils import (
     create_optimizer_and_scheduler,
     get_device,
-    print_device_info,
 )
 
 
@@ -42,7 +42,7 @@ def train_task_stage(
     A new optimizer and scheduler are created for
     this task stage.
     """
-
+    stage_start_time = time.perf_counter()
     print()
     print("=" * 70)
     print(f"SEQUENTIAL STAGE " f"{stage_index}: TASK {task}")
@@ -116,10 +116,20 @@ def train_task_stage(
 
         print(f"Learning rate: " f"{scheduler.get_last_lr()[0]:.6f}")
 
+    stage_duration = time.perf_counter() - stage_start_time
+
+    print()
+    print(
+        f"Task {task} stage time: "
+        f"{stage_duration:.2f} seconds "
+        f"({stage_duration / 60:.2f} minutes)"
+    )
+
     return {
         "task": task,
         "train_loss": train_loss,
         "train_accuracy": train_accuracy,
+        "duration_seconds": stage_duration,
     }
 
 
@@ -137,7 +147,7 @@ def train_sequential_order(
 
     The same model is continuously fine-tuned.
     """
-
+    order_start_time = time.perf_counter()
     print()
     print("#" * 70)
     print(f"SEQUENTIAL EXPERIMENT: " f"{' → '.join(order)}")
@@ -149,16 +159,22 @@ def train_sequential_order(
 
     set_seed(config["seed"])
 
+    initialization_path = ensure_initialization_checkpoint(
+        path=config["paths"]["initialization_checkpoint"],
+        config=config,
+        device=device,
+    )
+
     # --------------------------------------------------------
     # Create ONE model
     # --------------------------------------------------------
 
-    model = ResNet18MultiTask(
+    model = create_model_from_initialization(
+        initialization_path=initialization_path,
+        device=device,
         num_classes_per_task=5,
         pretrained=config["model"]["pretrained"],
     )
-
-    model = model.to(device)
 
     # --------------------------------------------------------
     # Output directory
@@ -178,11 +194,18 @@ def train_sequential_order(
     # --------------------------------------------------------
 
     stage_results = []
+    parent_checkpoint = initialization_path
 
     for stage_index, task in enumerate(
         order,
         start=1,
     ):
+
+        load_checkpoint(
+            path=parent_checkpoint,
+            model=model,
+            map_location=device,
+        )
 
         result = train_task_stage(
             model=model,
@@ -209,19 +232,33 @@ def train_sequential_order(
             epoch=config["training"]["epochs_per_task"],
             task=task,
             order=order[:stage_index],
+            parent_checkpoint=str(parent_checkpoint),
             metrics=result,
             config=config,
         )
+
+        parent_checkpoint = checkpoint_path
 
         print()
         print(f"Checkpoint saved:")
 
         print(checkpoint_path)
+    order_duration = time.perf_counter() - order_start_time
+
+    print()
+    print("=" * 70)
+    print(
+        f"Order {' → '.join(order)} completed in "
+        f"{order_duration:.2f} seconds "
+        f"({order_duration / 60:.2f} minutes)"
+    )
+    print("=" * 70)
 
     return {
         "order": order,
         "stages": stage_results,
         "final_checkpoint": str(checkpoint_dir / f"{'_'.join(order)}.pt"),
+        "duration_seconds": order_duration,
     }
 
 
@@ -238,8 +275,6 @@ def main():
     # --------------------------------------------------------
 
     device = get_device()
-
-    print_device_info(device)
 
     # --------------------------------------------------------
     # Read sequential orders from configuration
@@ -258,6 +293,8 @@ def main():
     print(f"Number of orders: " f"{len(sequential_orders)}")
 
     print()
+
+    matrix_start_time = time.perf_counter()
 
     for index, order in enumerate(
         sequential_orders,
@@ -299,13 +336,14 @@ def main():
             f"Experiment " f"{experiment_index}/" f"{len(sequential_orders)} complete"
         )
         print(f"Order: {' → '.join(result['order'])}")
+        print(f"Duration: " f"{result['duration_seconds'] / 60:.2f} minutes")
         print(f"Final checkpoint: " f"{result['final_checkpoint']}")
         print("-" * 70)
-
     # --------------------------------------------------------
     # Final summary
     # --------------------------------------------------------
 
+    matrix_duration = time.perf_counter() - matrix_start_time
     print()
     print()
     print("#" * 70)
@@ -316,10 +354,32 @@ def main():
 
         print(f"{' → '.join(result['order'])}")
 
+        print(f"  Duration: " f"{result['duration_seconds'] / 60:.2f} min")
+
+        for stage in result["stages"]:
+            print(
+                f"    Task {stage['task']}: "
+                f"{stage['duration_seconds'] / 60:.2f} min"
+            )
+
         print(f"  Final checkpoint: " f"{result['final_checkpoint']}")
 
     print()
-    print(f"Completed " f"{len(all_results)} " f"sequential experiments.")
+    print("=" * 70)
+    print(
+        f"Total matrix time: "
+        f"{matrix_duration:.2f} seconds "
+        f"({matrix_duration / 3600:.2f} hours)"
+    )
+
+    avg_order_time = matrix_duration / len(all_results)
+
+    print(
+        f"Average order time: "
+        f"{avg_order_time:.2f} seconds "
+        f"({avg_order_time / 60:.2f} minutes)"
+    )
+    print("=" * 70)
 
 
 if __name__ == "__main__":

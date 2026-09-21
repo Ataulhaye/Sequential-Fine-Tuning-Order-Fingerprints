@@ -119,23 +119,51 @@ def main():
     loss_barrier_results = None
     jacobian_results = None
 
-    if loss_barrier_path.exists():
+    loss_barrier_enabled = config["analysis"]["loss_barrier"].get(
+        "enabled",
+        False,
+    )
+
+    jacobian_enabled = config["analysis"]["jacobian"].get(
+        "enabled",
+        False,
+    )
+
+    if loss_barrier_enabled:
+        if not loss_barrier_path.exists():
+            raise FileNotFoundError(
+                "Loss-barrier analysis is enabled, but the result file "
+                f"was not found: {loss_barrier_path}"
+            )
+
         print()
         print("Loading loss-barrier results...")
+
         loss_barrier_results = load_json(loss_barrier_path)
-        print(f"Loaded loss-barrier analysis for {len(loss_barrier_results)} orders.")
+
+        print(
+            f"Loaded loss-barrier analysis for " f"{len(loss_barrier_results)} orders."
+        )
     else:
         print()
-        print("Loss-barrier results not found (optional).")
+        print("Loss-barrier analysis disabled in configuration.")
 
-    if jacobian_path.exists():
+    if jacobian_enabled:
+        if not jacobian_path.exists():
+            raise FileNotFoundError(
+                "Jacobian analysis is enabled, but the result file "
+                f"was not found: {jacobian_path}"
+            )
+
         print()
         print("Loading Jacobian sensitivity results...")
+
         jacobian_results = load_json(jacobian_path)
-        print(f"Loaded Jacobian analysis for {len(jacobian_results)} orders.")
+
+        print(f"Loaded Jacobian analysis for " f"{len(jacobian_results)} orders.")
     else:
         print()
-        print("Jacobian sensitivity results not found (optional).")
+        print("Jacobian analysis disabled in configuration.")
 
     # --------------------------------------------------------
     # Combine

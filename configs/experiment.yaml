@@ -11,11 +11,12 @@ seed: 42
 
 paths:
   project_root: "."
-  checkpoint_root: "./checkpoints/sequential"
+  initialization_checkpoint: "./checkpoints/verified_initialization/base_model.pt"
+  checkpoint_root: "./checkpoints/verified_initialization/sequential"
   result_root: "./results/sequential"
   data_root: "./data"
-  single_checkpoints: "./checkpoints/single"
-  sequential_checkpoints: "./checkpoints/sequential"
+  single_checkpoints: "./checkpoints/verified_initialization/single"
+  sequential_checkpoints: "./checkpoints/verified_initialization/sequential"
   results: "./results"
   figures: "./figures"
 
@@ -71,7 +72,7 @@ training:
 
   # Local smoke-test value.
   # This will be increased on the university server.
-  epochs_per_task: 10
+  epochs_per_task: 20
 
   batch_size: 128
 
@@ -108,12 +109,12 @@ experiment:
 representation:
   probe:
     # true: use the existing fixed probe; false: use all project-class test images.
-    enabled: true
+    enabled: false
     type: "all_project_classes"
     samples_per_class: 20
     # Independent seed controlling which fixed test images
     # are selected for representation analysis.
-    seed: 42
+    seed: 40
     batch_size: 128
     num_workers: 2
 
@@ -129,10 +130,12 @@ representation:
 
 analysis:
   loss_barrier:
+    enabled: false
     # Number of interpolation points between reference and sequential weights.
     num_points: 11
 
   jacobian:
+    enabled: false
     # Maximum number of test images analyzed per model and task.
     max_samples: 100
 
@@ -142,9 +145,11 @@ analysis:
 
 paths:
 
-  single_checkpoints: ./checkpoints/single
+  initialization_checkpoint: ./checkpoints/verified_initialization/base_model.pt
 
-  sequential_checkpoints: ./checkpoints/sequential
+  single_checkpoints: ./checkpoints/verified_initialization/single
+
+  sequential_checkpoints: ./checkpoints/verified_initialization/sequential
 
   results: ./results
 

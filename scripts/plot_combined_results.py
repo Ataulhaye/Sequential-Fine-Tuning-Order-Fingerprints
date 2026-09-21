@@ -7,6 +7,8 @@ from pathlib import Path
 
 import matplotlib
 
+from sequential_finetuning.analysis import loss_barrier
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -152,52 +154,58 @@ def load_validate(path):
             f"{name}: representation prediction missing",
         )
 
-        barriers = order.get("loss_barrier", {}).get("barriers", {})
-        require(
-            set(barriers) == expected_references,
-            f"{name}: loss barriers must contain each single-task reference",
-        )
-        for reference, by_task in barriers.items():
+        barriers = order.get("loss_barrier")
+        if barriers is not None:
+            barriers = barriers.get("barriers", {})
             require(
-                set(by_task) == set(tasks),
-                f"{name}: {reference} barriers must contain all tasks",
+                set(barriers) == expected_references,
+                f"{name}: loss barriers must contain each single-task reference",
             )
-            for task, entry in by_task.items():
-                alphas, losses = entry.get("alphas"), entry.get("losses")
+            for reference, by_task in barriers.items():
                 require(
-                    isinstance(alphas, list)
-                    and len(alphas) > 1
-                    and len(alphas) == len(losses),
-                    f"{name}: {reference}/{task} alpha and loss arrays must match",
+                    set(by_task) == set(tasks),
+                    f"{name}: {reference} barriers must contain all tasks",
                 )
-                require(
-                    "barrier_height" in entry and "barrier_area" in entry,
-                    f"{name}: {reference}/{task} barrier metrics missing",
-                )
+                for task, entry in by_task.items():
+                    alphas, losses = entry.get("alphas"), entry.get("losses")
+                    require(
+                        isinstance(alphas, list)
+                        and len(alphas) > 1
+                        and len(alphas) == len(losses),
+                        f"{name}: {reference}/{task} alpha and loss arrays must match",
+                    )
+                    require(
+                        "barrier_height" in entry and "barrier_area" in entry,
+                        f"{name}: {reference}/{task} barrier metrics missing",
+                    )
 
-        jacobians = order.get("jacobian", {}).get("jacobians", {})
-        require(isinstance(jacobians, dict), f"{name}: Jacobian data missing")
-        for task in tasks:
-            sequential = [
-                entry
-                for key, entry in jacobians.items()
-                if key.startswith("Sequential-") and entry.get("task") == task
-            ]
-            require(
-                len(sequential) == 1
-                and "mean_sensitivity" in sequential[0].get("metrics", {}),
-                f"{name}: missing sequential Jacobian entry for {task}",
-            )
-            require(
-                set(sequential[0].get("channel_sensitivity", {})) == {"R", "G", "B"},
-                f"{name}: RGB channel sensitivity missing for {task}",
-            )
-            single = jacobians.get(reference_name(task), {})
-            require(
-                single.get("task") == task
-                and "mean_sensitivity" in single.get("metrics", {}),
-                f"{name}: missing {reference_name(task)} Jacobian entry",
-            )
+        jacobians = order.get("jacobian")
+        if jacobians is not None:
+            jacobians = jacobians.get("jacobians", {})
+
+            require(isinstance(jacobians, dict), f"{name}: Jacobian data missing")
+            for task in tasks:
+                sequential = [
+                    entry
+                    for key, entry in jacobians.items()
+                    if key.startswith("Sequential-") and entry.get("task") == task
+                ]
+                require(
+                    len(sequential) == 1
+                    and "mean_sensitivity" in sequential[0].get("metrics", {}),
+                    f"{name}: missing sequential Jacobian entry for {task}",
+                )
+                require(
+                    set(sequential[0].get("channel_sensitivity", {}))
+                    == {"R", "G", "B"},
+                    f"{name}: RGB channel sensitivity missing for {task}",
+                )
+                single = jacobians.get(reference_name(task), {})
+                require(
+                    single.get("task") == task
+                    and "mean_sensitivity" in single.get("metrics", {}),
+                    f"{name}: missing {reference_name(task)} Jacobian entry",
+                )
 
     print("Validation summary:")
     print(f"Orders: {len(orders)}/{len(orders)}")
@@ -693,13 +701,83 @@ def main():
         evaluation_set,
     )
     generated += plot_forgetting(orders, tasks, colors)
-    generated += plot_loss(orders, tasks, colors)
-    generated += plot_loss(orders, tasks, colors, "barrier_height")
-    generated += plot_loss(orders, tasks, colors, "barrier_area")
-    generated += plot_jacobian(orders, tasks, colors)
-    generated += plot_jacobian_references(orders, tasks, colors)
-    generated += plot_channels(orders, tasks)
-    generated += plot_summary(orders, tasks, evaluation_set)
+    # Standard loss plots, if regular loss data exists.
+    if any("loss" in order for order in orders):
+        generated += plot_loss(orders, tasks, colors)
+    else:
+        print("Skipping loss plots: loss results are not available.")
+
+    # --------------------------------------------------------
+    # Optional loss-barrier figures
+    # --------------------------------------------------------
+
+    has_loss_barrier = all(
+        isinstance(order.get("loss_barrier"), dict)
+        and isinstance(order["loss_barrier"].get("barriers"), dict)
+        and bool(order["loss_barrier"]["barriers"])
+        for order in orders
+    )
+
+    if has_loss_barrier:
+        generated += plot_loss(
+            orders,
+            tasks,
+            colors,
+            "barrier_height",
+        )
+
+        generated += plot_loss(
+            orders,
+            tasks,
+            colors,
+            "barrier_area",
+        )
+    else:
+        print(
+            "Skipping loss-barrier plots: "
+            "loss-barrier results are not available for all orders."
+        )
+
+    # --------------------------------------------------------
+    # Optional Jacobian and channel-sensitivity figures
+    # --------------------------------------------------------
+
+    has_jacobian = all(
+        isinstance(order.get("jacobian"), dict)
+        and isinstance(order["jacobian"].get("jacobians"), dict)
+        and bool(order["jacobian"]["jacobians"])
+        for order in orders
+    )
+
+    if has_jacobian:
+        generated += plot_jacobian(
+            orders,
+            tasks,
+            colors,
+        )
+
+        generated += plot_jacobian_references(
+            orders,
+            tasks,
+            colors,
+        )
+
+        generated += plot_channels(
+            orders,
+            tasks,
+        )
+    else:
+        print(
+            "Skipping Jacobian and channel-sensitivity plots: "
+            "Jacobian results are not available for all orders."
+        )
+
+    generated += plot_summary(
+        orders,
+        tasks,
+        evaluation_set,
+    )
+
     print(f"Figures use {format_evaluation_set_label(evaluation_set)}")
     print(f"Output directory: {OUT}")
     print(f"Generated {len(generated)} research figure files successfully.")

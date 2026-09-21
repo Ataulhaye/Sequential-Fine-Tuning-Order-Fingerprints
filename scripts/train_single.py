@@ -1,8 +1,9 @@
+import time
 from pathlib import Path
 
-import torch
-
 from sequential_finetuning.checkpoint import (
+    create_model_from_initialization,
+    ensure_initialization_checkpoint,
     save_checkpoint,
 )
 from sequential_finetuning.config import (
@@ -14,9 +15,6 @@ from sequential_finetuning.dataset import (
 from sequential_finetuning.evaluation import (
     evaluate,
 )
-from sequential_finetuning.model import (
-    ResNet18MultiTask,
-)
 from sequential_finetuning.seed import (
     set_seed,
 )
@@ -25,6 +23,7 @@ from sequential_finetuning.train import (
 )
 from sequential_finetuning.training_utils import (
     create_optimizer_and_scheduler,
+    get_device,
 )
 
 
@@ -36,7 +35,7 @@ def train_single_task(
     """
     Train one independent model on one task.
     """
-
+    task_start_time = time.perf_counter()
     print()
     print("=" * 70)
     print(f"SINGLE-TASK TRAINING: {task}")
@@ -47,6 +46,12 @@ def train_single_task(
     # --------------------------------------------------------
 
     set_seed(config["seed"])
+
+    initialization_path = ensure_initialization_checkpoint(
+        path=config["paths"]["initialization_checkpoint"],
+        config=config,
+        device=device,
+    )
 
     # --------------------------------------------------------
     # Configuration
@@ -90,12 +95,12 @@ def train_single_task(
     # Model
     # --------------------------------------------------------
 
-    model = ResNet18MultiTask(
+    model = create_model_from_initialization(
+        initialization_path=initialization_path,
+        device=device,
         num_classes_per_task=5,
         pretrained=config["model"]["pretrained"],
     )
-
-    model = model.to(device)
 
     # --------------------------------------------------------
     # Optimizer
@@ -169,6 +174,7 @@ def train_single_task(
         epoch=epochs,
         task=task,
         order=[task],
+        parent_checkpoint=str(initialization_path),
         metrics={
             "test_loss": test_loss,
             "test_accuracy": test_accuracy,
@@ -181,11 +187,20 @@ def train_single_task(
 
     print(checkpoint_path)
 
+    task_duration = time.perf_counter() - task_start_time
+
+    print()
+    print(
+        f"Task {task} total time: {task_duration:.2f} seconds "
+        f"({task_duration / 60:.2f} minutes)"
+    )
+
     return {
         "task": task,
         "test_loss": test_loss,
         "test_accuracy": test_accuracy,
         "checkpoint": str(checkpoint_path),
+        "duration_seconds": task_duration,
     }
 
 
@@ -201,12 +216,7 @@ def main():
     # Device
     # --------------------------------------------------------
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    print(f"Using device: {device}")
-
-    if device.type == "cuda":
-        print(f"GPU: " f"{torch.cuda.get_device_name(0)}")
+    device = get_device()
 
     # --------------------------------------------------------
     # Train A, B, C
@@ -214,7 +224,11 @@ def main():
 
     results = []
 
-    for task in ["A", "B", "C"]:
+    order = config["experiment"]["sequential_orders"][0]
+
+    total_start_time = time.perf_counter()
+
+    for task in order:
 
         result = train_single_task(
             task=task,
@@ -223,6 +237,8 @@ def main():
         )
 
         results.append(result)
+
+    total_duration = time.perf_counter() - total_start_time
 
     # --------------------------------------------------------
     # Summary
@@ -235,7 +251,26 @@ def main():
 
     for result in results:
 
-        print(f"Task {result['task']}: " f"{100.0 * result['test_accuracy']:.2f}%")
+        print(
+            f"Task {result['task']}: "
+            f"{100.0 * result['test_accuracy']:.2f}% "
+            f"(Time: {result['duration_seconds'] / 60:.2f} min)"
+        )
+    print()
+    print("-" * 70)
+    print(
+        f"Total training time: "
+        f"{total_duration:.2f} seconds "
+        f"({total_duration / 60:.2f} minutes)"
+    )
+
+    avg_task_time = total_duration / len(results)
+
+    print(
+        f"Average task time: "
+        f"{avg_task_time:.2f} seconds "
+        f"({avg_task_time / 60:.2f} minutes)"
+    )
 
 
 if __name__ == "__main__":

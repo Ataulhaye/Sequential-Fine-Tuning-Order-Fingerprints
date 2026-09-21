@@ -8,6 +8,27 @@ This document describes the complete experimental pipeline for studying whether 
 
 ## Workflow Steps
 
+### STEP 0: Create the Canonical Base Model
+
+**Script:** `scripts/create_base_model.py`
+
+Run this once before starting any training or analysis:
+
+```bash
+python scripts/create_base_model.py
+```
+
+This creates and verifies:
+
+```
+checkpoints/verified_initialization/base_model.pt
+```
+
+The checkpoint contains the untrained model state `theta_0`. Single-task and
+sequential training both load this exact state. The command is idempotent: an
+existing base checkpoint is preserved and only verified, so rerunning it does
+not silently change the initialization used by the experiment.
+
 ### STEP 1: Configure Experiment
 
 **File:** `configs/experiment.yaml`
