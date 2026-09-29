@@ -12,7 +12,8 @@ This document describes the complete experimental pipeline for studying whether 
 
 **Script:** `scripts/create_base_model.py`
 
-Run this once before starting any training or analysis:
+Run this once before startin
+g any training or analysis:
 
 ```bash
 python scripts/create_base_model.py
