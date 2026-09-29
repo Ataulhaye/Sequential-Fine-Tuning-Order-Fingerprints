@@ -72,11 +72,11 @@
   arr/.style={-{Stealth[length=2.2mm]}, thick, navy},
 }
 
-% ---------- Title info: EDIT THESE ----------
+% ---------- Title info ----------
 \title{Sequential Fine-Tuning Order Fingerprints}
-\author{[Your name]}
-\institute{[Institution / course]}
-\date{[Date]}
+\author{Ahmad Ata Ul Haye, Daniel Flick}
+\institute{PAMI Practice SS 2026, Goethe Universität Frankfurt}
+\date{30.09.2026}
 
 \begin{document}
 
@@ -105,11 +105,18 @@
     \begin{column}{0.55\textwidth}
       A network is trained on tasks one after another. Each new task changes the weights.
 
-      \bigskip
-      \textbf{Does the final checkpoint still carry a measurable trace of the task learned most recently?}
 
-      \bigskip
-      Concretely: after training on $A \to B \to C$, can we tell that $C$ came last, using only the final model and models trained on a single task?
+    \bigskip
+    \textbf{Can we predict the final learned task?}
+
+    \bigskip
+    \textbf{Can we predict the full training order?}
+      
+    \bigskip
+    \textbf{Explore catastrophic forgetting}
+
+    \bigskip
+
     \end{column}
     \begin{column}{0.42\textwidth}
       \begin{tikzpicture}
@@ -158,7 +165,7 @@
         \item Freeze A- and B-heads, add a C-head, train on C.
       \end{enumerate}
       \medskip
-      No forgetting protection (no EWC, SI or replay). A checkpoint is saved after every stage; the last one is the \hl{final sequential model}.
+       A checkpoint is saved after every stage; the last one is the \hl{final sequential model}.
     \end{column}
     \begin{column}{0.5\textwidth}
       \begin{tikzpicture}[x=1cm,y=1cm]
@@ -210,189 +217,29 @@
 \end{frame}
 
 % ======================================================
-\begin{frame}{Five families of comparison}
+\begin{frame}{Methods overview: predictors and diagnostics}
   \footnotesize
   \centering
-  \renewcommand{\arraystretch}{1.15}
-  \begin{tabular}{@{}p{3.3cm}p{5.2cm}p{5.0cm}@{}}
+  \renewcommand{\arraystretch}{1.2}
+  \begin{tabular}{@{}p{3.1cm}p{6.4cm}p{4.1cm}@{}}
     \toprule
     \textbf{Method} & \textbf{What is compared} & \textbf{Prediction rule}\\
     \midrule
-    Weight distance (L2) & Parameters of final model vs.\ each reference & Smallest distance\\
+    \multicolumn{3}{@{}l}{\textcolor{navy}{\textbf{Fingerprint predictors}}}\\
+    Weight distance (L2) & Final model vs.\ each reference & Smallest distance\\
     CKA & Feature structure on a fixed image set & Highest similarity\\
-    Feature drift & Feature vectors, sample by sample & Smallest drift\\
-    Weight matching & Parameters after removing neuron reordering; direction of weight change & Smallest matched L2; highest cosine\\
-    Fisher trace & Curvature of the final model only (no references) & Rank the three tasks; test both directions\\
-    \bottomrule
-  \end{tabular}
-
-  \vspace{2mm}
-  \raggedright\small
-  Forgetting, loss barriers and Jacobian sensitivity are computed too, but only as supporting diagnostics.
-\end{frame}
-
-% ======================================================
-\begin{frame}{Weight distance}
-  \begin{columns}[T]
-    \begin{column}{0.55\textwidth}
-      Euclidean distance between the final model and each reference:
-      \[
-        D_{\text{full}} = \lVert \theta_{\text{seq}} - \theta_{\text{ref}} \rVert_2
-      \]
-      Two versions:
-      \begin{itemize}
-        \item \textbf{Full model:} backbone and all heads.
-        \item \textbf{Backbone only:} the shared ResNet18 parameters, heads excluded.
-      \end{itemize}
-      \medskip
-      \textbf{Rule:} the reference with the smallest distance is the predicted last task.
-    \end{column}
-    \begin{column}{0.42\textwidth}
-      \textbf{Why two versions?}\\[2pt]
-      The full-model distance also includes the heads, which are not comparable in the same way. The backbone version isolates the shared representation.
-    \end{column}
-  \end{columns}
-\end{frame}
-
-% ======================================================
-\begin{frame}{Representation similarity: CKA and feature drift}
-  Both are computed on the same fixed images. For each image, the 512-dimensional feature vector before the classifier is extracted from the final model and from each reference.
-
-  \medskip
-  \begin{columns}[T]
-    \begin{column}{0.48\textwidth}
-      \textbf{Linear CKA}
-      \[
-        \mathrm{CKA}(X,Y)=\frac{\lVert X^\top Y\rVert_F^2}{\lVert X^\top X\rVert_F\,\lVert Y^\top Y\rVert_F}
-      \]
-      $X,Y$ centred feature matrices.\\
-      Asks: is the \emph{structure} of the representation similar?\\
-      Range 0 to 1. \hl{Highest CKA} predicts the last task.
-    \end{column}
-    \begin{column}{0.48\textwidth}
-      \textbf{Feature drift}
-      \[
-        \mathrm{drift}(X,Y)=\operatorname{mean}\left\lVert \tfrac{x}{\lVert x\rVert}-\tfrac{y}{\lVert y\rVert}\right\rVert_2
-      \]
-      Asks: did the individual feature vectors move?\\
-      Range 0 to 2. \hl{Lowest drift} predicts the last task.
-    \end{column}
-  \end{columns}
-\end{frame}
-
-% ======================================================
-\begin{frame}{The fixed evaluation image set}
-  CKA and feature drift are only comparable if every model sees exactly the same images. Two modes exist:
-
-  \bigskip
-  \centering
-  \begin{tabular}{@{}lp{3.2cm}p{5.6cm}@{}}
-    \toprule
-    \textbf{Mode} & \textbf{Images} & \textbf{Details}\\
+    Feature drift & Feature vectors, image by image & Smallest drift\\
+    Weight matching & Weights after undoing neuron reordering & Smallest L2, highest cosine\\
+    Fisher trace & Curvature of the final model alone & Both directions tested\\
     \midrule
-    \texttt{probe} & 300 & 20 random test images for each of the 15 classes; seed 42; created once and reused\\[3pt]
-    \texttt{all\_test} & 1{,}500 & Every CIFAR-100 test image of the 15 classes; no sampling\\
+    \multicolumn{3}{@{}l}{\textcolor{navy}{\textbf{Forgetting diagnostics}}}\\
+    Forgetting & Accuracy after learning vs.\ final accuracy & -\\
+    Loss barrier & Loss along path reference $\to$ final model & -\\
+    Jacobian sensitivity & Logit gradient w.r.t.\ the input image & -\\
     \bottomrule
   \end{tabular}
-
-  \bigskip
-  \raggedright
-  The mode is shown in the title of each representation figure. \textbf{The results in this presentation use \texttt{all\_test}.}
 \end{frame}
 
-% ======================================================
-\begin{frame}{Fisher information: a fingerprint without reference models}
-  \begin{columns}[T]
-    \begin{column}{0.55\textwidth}
-      The Fisher trace measures how strongly the model's output reacts to weight changes on a task's data. It needs only the \hl{final checkpoint}.
-
-      \medskip
-      Per task (1{,}000 samples):
-      \begin{enumerate}
-        \item Sample a label from the model's own predicted probabilities.
-        \item Back-propagate the loss; square and accumulate the gradients.
-        \item Never update the weights.
-      \end{enumerate}
-      Result: $F_A$, $F_B$, $F_C$.
-    \end{column}
-    \begin{column}{0.42\textwidth}
-      Nobody knows in advance whether a \emph{high} value means ``recent'' or ``old'', so both readings are tested:
-      \medskip
-
-      \small
-      \begin{tabular}{@{}ll@{}}
-        \toprule
-        \textbf{Hypothesis} & \textbf{Last task}\\
-        \midrule
-        \texttt{high\_is\_recent} & largest $F$\\
-        \texttt{low\_is\_recent} & smallest $F$\\
-        \bottomrule
-      \end{tabular}
-
-      \medskip
-      Sorting the three values also gives a guess for the full order (chance: 1/6).
-    \end{column}
-  \end{columns}
-\end{frame}
-
-% ======================================================
-\begin{frame}{Weight matching: a control for neuron reordering}
-  Two networks can compute the same function with neurons in a different order, which inflates L2 distance. Weight matching (Git Re-Basin) reorders the neurons of one model to best fit the other before measuring.
-
-  \medskip
-  \begin{itemize}
-    \item Solved with the Hungarian algorithm, one permutation group at a time.
-    \item Checked afterwards: the logits of all three heads must be unchanged.
-    \item Also computed: cosine similarity of the \emph{weight updates} $\theta_{\text{final}}-\theta_{\text{init}}$ and $\theta_{\text{task}}-\theta_{\text{init}}$.
-  \end{itemize}
-
-  \medskip
-  All models start from the same initialization, so the expected outcome is the \textbf{identity permutation}: matched and unmatched distances are equal. This makes it a \hl{negative control} for the L2 result.
-\end{frame}
-
-% ======================================================
-\begin{frame}{Supporting diagnostics (not predictors)}
-  \begin{columns}[T]
-    \begin{column}{0.32\textwidth}
-      \textbf{Forgetting}\\[2pt]
-      accuracy right after learning a task minus its final accuracy.\\[2pt]
-      Positive: performance dropped.
-    \end{column}
-    \begin{column}{0.32\textwidth}
-      \textbf{Loss barrier}\\[2pt]
-      Interpolate linearly between final model and a reference; measure the loss along the path.\\[2pt]
-      Height = max minus min loss.
-    \end{column}
-    \begin{column}{0.32\textwidth}
-      \textbf{Jacobian sensitivity}\\[2pt]
-      Gradient norm of the predicted logit with respect to the input image, averaged over images.
-    \end{column}
-  \end{columns}
-
-  \vspace{6mm}
-  These describe how the models behave. They do not define a rule for the last task, and higher sensitivity does not mean ``learned more recently''.
-\end{frame}
-
-% ======================================================
-\begin{frame}{Pipeline}
-  \centering
-  \begin{tikzpicture}[node distance=5mm]
-    \node[box, text width=3.0cm, minimum height=3.3cm, anchor=north west] (s1) at (0,0)
-      {\textbf{1. Prepare}\\[3pt]\footnotesize shared initial model $\theta_0$\\ experiment config\\ fixed image set};
-    \node[box, text width=3.0cm, minimum height=3.3cm, anchor=north west] (s2) at (3.6,0)
-      {\textbf{2. Train}\\[3pt]\footnotesize 3 single-task models\\ 6 sequential orders\\ checkpoint per stage};
-    \node[box, text width=3.0cm, minimum height=3.3cm, anchor=north west] (s3) at (7.2,0)
-      {\textbf{3. Analyse}\\[3pt]\footnotesize sequential evaluation\\ weight distance\\ CKA, feature drift\\ Fisher, weight matching\\ loss barrier, Jacobian};
-    \node[box, text width=3.0cm, minimum height=3.3cm, anchor=north west] (s4) at (10.8,0)
-      {\textbf{4. Combine}\\[3pt]\footnotesize merge all result files (no recomputation)\\ plot figures};
-    \draw[arr] (s1.east)--(s2.west);
-    \draw[arr] (s2.east)--(s3.west);
-    \draw[arr] (s3.east)--(s4.west);
-  \end{tikzpicture}
-
-  \vspace{3mm}
-  \small All settings, task orders and class lists come from one config file. Nothing is hard-coded in the scripts.
-\end{frame}
 
 % ======================================================
 \begin{frame}{Result: how often is the last task predicted correctly?}
@@ -424,7 +271,6 @@
     \end{column}
     \begin{column}{0.34\textwidth}
       \small
-      \textbf{Reading the chart}
       \begin{itemize}
         \item CKA is right in every order.
         \item Feature drift misses one.
@@ -454,11 +300,16 @@
 \begin{frame}{CKA separates the last task clearly}
   \begin{columns}[T]
     \begin{column}{0.66\textwidth}
+      Asks: is the structure of the representation similar?
+      Highest CKA predicts the last task.
+      \bigskip
+
       \showfigcrop{cka_similarity.png}{5.3cm}{0.13}
     \end{column}
     \begin{column}{0.31\textwidth}
       \footnotesize
-      One panel per order. Bars show CKA between the final model and Single-A, B, C. Outline marks the actual last task.
+
+      Bars show CKA between the final model and Single-A, B, C. Outline marks the actual last task.
       \begin{itemize}
         \item The outlined bar is the highest in all six orders.
         \item Last-task CKA lies between 0.63 and 0.75.
@@ -470,9 +321,13 @@
 \end{frame}
 
 % ======================================================
-\begin{frame}{Feature drift: same direction, smaller margins}
+\begin{frame}{Feature drift}
   \begin{columns}[T]
     \begin{column}{0.66\textwidth}
+      Asks: did the individual feature vectors move?
+      Lowest drift predicts the last task.
+      \bigskip
+
       \showfigcrop{feature_drift.png}{5.3cm}{0.13}
     \end{column}
     \begin{column}{0.31\textwidth}
@@ -497,11 +352,10 @@
       \footnotesize
       L2 distance from each final model to the three references, for the full model (top) and the backbone (bottom). Outline marks the actual last task.
       \begin{itemize}
-        \item In every order the \hl{closest} reference is the one of the \hl{first} task.
+        \item In every order the \hl{closest} reference is the \hl{first} task.
         \item The last task is never the closest: 0 of 6.
         \item Full model and backbone give the same picture.
       \end{itemize}
-      The project documentation reads this as distance reflecting how far the weights travelled, not recency.
     \end{column}
   \end{columns}
 \end{frame}
@@ -524,6 +378,7 @@
   \end{columns}
 \end{frame}
 
+
 % ======================================================
 \begin{frame}{Fisher: lowest trace marks the last task in 4 of 6}
   \begin{columns}[T]
@@ -544,6 +399,7 @@
 \end{frame}
 
 % ======================================================
+
 \begin{frame}{Forgetting}
   \begin{columns}[T]
     \begin{column}{0.66\textwidth}
@@ -562,6 +418,7 @@
   \end{columns}
 \end{frame}
 
+
 % ======================================================
 \begin{frame}{Hypotheses and outcome}
   \small
@@ -570,10 +427,9 @@
     \toprule
     & \textbf{Hypothesis} & \textbf{Outcome so far}\\
     \midrule
-    H1 & Sequential training leaves a last-task fingerprint & CKA 6/6, feature drift 5/6, Fisher (low is recent) 4/6. L2 and cosine 0/6.\\
-    H2 & Representation similarity beats weight distance & \textbf{Supported.} 83--100\% vs.\ 0\%; weight matching rules out permutation as the cause.\\
-    H3 & The last task is forgotten least & Zero for the last task, but by construction. No independent evidence.\\
-    H4 & Fisher trace depends on when a task was learned & Lowest trace marks the last task in 4/6 orders (total and backbone); full order 1/6.\\
+    H1 & Can we predict the final learned task? & CKA 6/6, feature drift 5/6, Fisher (low is recent) 4/6. L2 and cosine 0/6.\\
+    H2 & Can we predict the full training order? & In combination of CKA and weight distance\\
+    H3 & Explore catastrophic forgetting & ...\\
     \bottomrule
   \end{tabular}
 \end{frame}
@@ -581,37 +437,25 @@
 % ======================================================
 \begin{frame}{Limitations}
   \begin{itemize}
-    \item \textbf{One training run} (seed 42). No estimate of run-to-run variation.
-    \item \textbf{Only six orders.} One flipped prediction changes accuracy by 16.7 points.
-    \item \textbf{Fisher predictions are concentrated on A} (4 of 6 orders).
-    \item \textbf{Shared initialization.} Weight matching returns the identity, so its benefit cannot show here.
+    \item \textbf{One training run}. No estimate of run-to-run variation.
+     \bigskip 
+    \item \textbf{Only 3 Tasks per Order.} 
+     \bigskip
+     \item \textbf{Fisher predictions are concentrated on A} (4 of 6 orders).
+     \bigskip
     \item \textbf{Small tasks.} 5 classes each, from CIFAR-100; the tasks may be too similar or too different.
-    \item \textbf{No task boundaries or forgetting protection} in training; heads are always 5-class.
-    \item \textbf{Hardware.} Seeds give deterministic results on the same hardware only.
   \end{itemize}
 \end{frame}
 
 % ======================================================
 \begin{frame}{Conclusions and next steps}
-  \begin{columns}[T]
-    \begin{column}{0.48\textwidth}
       \textbf{Conclusions}
+      \bigskip
       \begin{itemize}
         \item The last task is detectable in the \hl{representations} (CKA, feature drift) and, less reliably, in the \hl{curvature} (Fisher).
-        \item Weight distance and update cosine do not reveal it; both point at the first task.
+        \item Weight distance and update cosine point at the first task.
         \item Forgetting adds no independent evidence.
       \end{itemize}
-    \end{column}
-    \begin{column}{0.48\textwidth}
-      \textbf{Next steps}
-      \begin{itemize}
-        \item Repeat with several training seeds and aggregate.
-        \item Use independently initialized references, where weight matching matters.
-        \item Find out why weight-space measures favor the first task.
-        \item Try other architectures, intermediate layers, other task sets, and more than three tasks.
-      \end{itemize}
-    \end{column}
-  \end{columns}
 \end{frame}
 
 \end{document}
