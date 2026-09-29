@@ -23,14 +23,14 @@ lineage handling were made explicit.
 
 ## 1. Research Question
 
-> **Given the final checkpoint of a sequentially fine-tuned model on three tasks, can we determine which task was learned most recently?**
+> **Given the final checkpoint of a sequentially fine-tuned model on three tasks, can we determine which task was learned most recently, and ideally recover the full training order?**
 
 For example, if we sequentially trained a model as:
 ```
 Task A → Task B → Task C
 ```
 
-Can we predict that C is the last task by comparing this final model against three independently trained reference models (Single-A, Single-B, Single-C)?
+Can we predict that C is the last task by comparing this final model against three independently trained reference models (Single-A, Single-B, Single-C)? The Fisher-information method additionally produces a guess for the complete order (e.g. `B → C → A`).
 
 ## 2. Core Concept
 
@@ -86,9 +86,9 @@ ResNet18 Backbone (Shared)
 
 The shared backbone is the primary object of study, representing the learned feature space.
 
-## 5. Three Comparison Methods
+## 5. Comparison Methods
 
-The project compares sequential final models against single-task references using three independent approaches:
+The project compares sequential final models against single-task references using several independent approaches:
 
 ### 5.1 Weight Distance
 
@@ -120,6 +120,37 @@ The project compares sequential final models against single-task references usin
 
 **Prediction Rule:** Minimum drift indicates last task
 
+### 5.4 Fisher Information
+
+Estimates the trace of the Fisher information matrix of the **final checkpoint alone**, once per task. No reference model is required.
+
+For ~1000 samples of a task, one sample at a time:
+
+1. run the sample through the final checkpoint,
+2. draw a label at random from the model's own predicted probabilities (the dataset label is ignored),
+3. compute the loss for that sampled label and back-propagate without updating the weights,
+4. square every gradient entry.
+
+Averaging over samples and summing over all weights gives one number per task: `F_A`, `F_B`, `F_C`. Sorting the three numbers gives a guessed training order.
+
+**Prediction Rule:** It is not known a priori whether a high Fisher trace means "learned recently" or "learned long ago", so both reading directions are computed and reported:
+
+- `high_is_recent`: guessed order is ascending in `F` (last task = highest `F`)
+- `low_is_recent`: guessed order is descending in `F` (last task = lowest `F`)
+
+### 5.5 Weight Matching (Git Re-Basin) and Cosine Direction
+
+Two networks can compute the same function with their neurons in a different order, which makes a plain L2 distance misleading. Weight matching reorders the neurons of the final checkpoint so that they line up with a single-task reference, without changing the function the network computes.
+
+1. Align the final checkpoint to each single-task model A, B, C using the Git Re-Basin weight-matching algorithm (coordinate descent with the Hungarian algorithm).
+2. Verify that the logits are unchanged after alignment (the analysis aborts if they are not).
+3. Recompute the L2 distances on the aligned weights, before and after matching.
+4. Additionally compute the cosine similarity between `(θ_final − θ_init)` and `(θ_task − θ_init)`, for the whole network, for the backbone only, and per layer. Unlike L2, cosine is unaffected by how far training moved the weights in total and only compares the direction of movement.
+
+`θ_init` is the shared initialization at `checkpoints/verified_initialization/base_model.pt`.
+
+**Prediction Rule:** Minimum matched L2 distance, or maximum cosine similarity, indicates the last task.
+
 ### Method Comparison
 
 | Method | Space | Metric | Prediction |
@@ -127,7 +158,10 @@ The project compares sequential final models against single-task references usin
 | Full-model L2 | Parameters | Distance | Min distance |
 | Backbone L2 | Parameters | Distance | Min distance |
 | CKA | Representations | Similarity | Max similarity |
-| Feature Drift | Representations | Distance | Min distance |
+| Feature Drift | Representations | Distance | Min drift |
+| Matched L2 (weight matching) | Parameters modulo permutation | Distance | Min distance |
+| Task-vector cosine | Parameter update direction | Similarity | Max similarity |
+| Fisher trace | Curvature of the final model | Scalar per task | Sorted ranking (both directions) |
 
 ## 6. Fixed Representation Probe
 
@@ -167,26 +201,35 @@ forgetting(T) = accuracy(T) immediately after learning T
 
 Positive values indicate performance loss on earlier tasks. Measured during sequential evaluation.
 
-## 8. Current Results (Smoke Test, 1 Epoch)
+## 8. Current Results
 
-### Prediction Accuracy (All Methods)
+Run configuration: verified-initialization checkpoints, 20 epochs per task, `representation.probe.enabled: false` (all 1,500 project-class test images), six orders.
+
+### Last-Task Prediction Accuracy
 
 | Method | Correct | Total | Accuracy |
 |--------|---------|-------|----------|
-| Full-Model L2 | 2 | 6 | 33.33% |
-| Backbone-Only L2 | 2 | 6 | 33.33% |
-| CKA | 2 | 6 | 33.33% |
-| Feature Drift | 2 | 6 | 33.33% |
+| Full-Model L2 | 0 | 6 | 0.00% |
+| Backbone-Only L2 | 0 | 6 | 0.00% |
+| CKA | 6 | 6 | 100.00% |
+| Feature Drift | 5 | 6 | 83.33% |
+| Matched L2 (weight matching) | 0 | 6 | 0.00% |
+| Task-vector cosine (matched) | 0 | 6 | 0.00% |
+| Fisher trace, `low_is_recent` | 4 | 6 | 66.67% |
+| Fisher trace, `high_is_recent` | 0 | 6 | 0.00% |
 
-**Note:** 33.33% is random-chance accuracy (1 out of 3 tasks).
+**Note:** 33.33% is random-chance accuracy for the last task (1 out of 3 tasks).
 
-### Key Observation
+### Full-Order Prediction Accuracy
 
-All methods currently predict task **A** as the last task for most orders, regardless of actual ground truth. This suggests:
+Only the Fisher ranking produces a guess for the complete order. With `low_is_recent` it recovers the exact order in 1 of 6 runs (16.67%); random chance is 1 of 6 permutations (16.67%).
 
-1. The task order may not leave a strong geometric fingerprint in the current setup
-2. Single-epoch training may be insufficient
-3. Alternative metrics or model architectures might be needed
+### Key Observations
+
+1. Representation-space methods (CKA, feature drift) identify the last task reliably in this run.
+2. Parameter-space L2 distance points at the **first** task rather than the last one, both before and after weight matching.
+3. Weight matching returns the identity permutation for every order/reference pair: all checkpoints descend from the same initialization `θ_init` and stay in the same basin, so no permutation symmetry has to be undone here. The matched and unmatched distances are therefore identical, which is itself the result of the check. Weight matching becomes relevant as soon as models are compared that do not share an initialization.
+4. The Fisher trace is *lower* for the most recently learned task in this setup (`low_is_recent`), which is the direction that beats chance.
 
 ## 8.5 Advanced Diagnostics
 
@@ -242,7 +285,9 @@ Sequential Fine-Tuning Order Fingerprints/
 │   └── analysis/
 │       ├── weight_distance.py         # L2 distance calculations
 │       ├── loss_barrier.py            # Loss-barrier curve analysis
-│       └── jacobian.py                # Jacobian sensitivity analysis
+│       ├── jacobian.py                # Jacobian sensitivity analysis
+│       ├── fisher.py                  # Fisher information trace and ranking
+│       └── weight_matching.py         # Git Re-Basin alignment, cosine directions
 │
 ├── scripts/
 │   ├── train_single.py                # Train single-task models
@@ -254,6 +299,8 @@ Sequential Fine-Tuning Order Fingerprints/
 │   ├── analyze_weight_distance.py     # Calculate L2 distances
 │   ├── analyze_loss_barrier.py        # Loss-barrier curve analysis
 │   ├── analyze_jacobian.py            # Jacobian sensitivity analysis
+│   ├── analyze_fisher.py              # Fisher information analysis
+│   ├── analyze_weight_matching.py     # Weight matching and cosine analysis
 │   ├── analyze_combined.py            # Combine all results
 │   └── smoke_test_training.py         # Quick local test
 │
@@ -284,6 +331,10 @@ Sequential Fine-Tuning Order Fingerprints/
 │   │   └── loss_barrier.json
 │   ├── jacobian/                      # Optional Jacobian analysis
 │   │   └── jacobian_analysis.json
+│   ├── fisher/                        # Fisher information analysis
+│   │   └── fisher.json
+│   ├── weight_matching/               # Weight matching and cosine analysis
+│   │   └── weight_matching.json
 │   └── combined/                      # Combined results
 │       └── combined_analysis.json
 │
@@ -325,10 +376,14 @@ python scripts/analyze_weight_distance.py
 python scripts/analyze_loss_barrier.py       # Loss-barrier curves
 python scripts/analyze_jacobian.py           # Jacobian sensitivity
 
-# 10. Combine all results
+# 10. Order fingerprints without / modulo permutation symmetry
+python scripts/analyze_fisher.py             # Fisher information ranking
+python scripts/analyze_weight_matching.py    # Git Re-Basin alignment + cosine
+
+# 11. Combine all results
 python scripts/analyze_combined.py
 
-# 11. Generate report figures
+# 12. Generate report figures
 python scripts/plot_combined_results.py
 ```
 
@@ -346,6 +401,8 @@ The single source of truth for all experiments.
 - `representation.probe` — Fixed probe configuration
 - `analysis.loss_barrier.num_points` — Loss-barrier interpolation resolution
 - `analysis.jacobian.max_samples` — Maximum Jacobian images per model/task
+- `analysis.fisher` — Samples per task, split, and seed for the Fisher estimate
+- `analysis.weight_matching` — Coordinate-descent iterations and invariance-check settings
 - `paths` — Checkpoint and result directories
 
 **Important:** Main training and analysis pipelines must read task orders and
@@ -361,6 +418,8 @@ classes from this configuration rather than duplicating experiment definitions.
 | `results/representation/probe_set.json` | Fixed probe definition |
 | `results/loss_barrier/loss_barrier.json` | Optional loss-barrier curves and summary metrics |
 | `results/jacobian/jacobian_analysis.json` | Optional Jacobian sensitivity metrics and channel summaries |
+| `results/fisher/fisher.json` | Fisher traces per task, guessed orders for both reading directions |
+| `results/weight_matching/weight_matching.json` | Matched/unmatched L2, cosine similarities, permutation and invariance-check info |
 | `results/combined/combined_analysis.json` | Combined results from all core methods and optional advanced diagnostics |
 | `figures/combined/` | Core and, when available, advanced diagnostic PNG figures |
 
@@ -389,15 +448,17 @@ See **[docs/METHODS.md](docs/METHODS.md)**.
 
 ## 15. Current Status
 
-**Development Stage:** Smoke test with 1 epoch per task (local verification)
+**Development Stage:** Full runs with 20 epochs per task using the verified initialization
 
 **Current implementation status:**
 - Core analyses are fully implemented and combined
+- Fisher information and weight matching (Git Re-Basin) with task-vector cosine similarity are implemented and merged into the combined analysis
 - Optional advanced diagnostics (loss-barrier curves, Jacobian sensitivity) are supported and merged when available
 - Combined JSON includes all available methods without recomputing metrics
+- No figures are generated yet for the Fisher and weight-matching analyses; their results are JSON only
 
 **Next Steps:**
-1. Full training on university server (10-20 epochs per task)
+1. Extend the figure script to the Fisher and weight-matching results
 2. Multiple random seeds for statistical robustness
 3. Analysis of intermediate layers
 4. Investigation of task similarity effects

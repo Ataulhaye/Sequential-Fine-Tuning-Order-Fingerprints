@@ -139,6 +139,27 @@ analysis:
     # Maximum number of test images analyzed per model and task.
     max_samples: 100
 
+  fisher:
+    enabled: true
+    # Samples per task used for the Fisher trace estimate.
+    num_samples: 1000
+    # CIFAR-100 split the samples are drawn from: train or test.
+    split: train
+    # Controls sample selection and the label sampling; independent of training.
+    seed: 42
+    # Only affects loading; gradients are always computed per single sample.
+    batch_size: 32
+
+  weight_matching:
+    enabled: true
+    # Maximum coordinate-descent sweeps over the permutation groups.
+    max_iterations: 100
+    # Controls the random visiting order of the permutation groups.
+    seed: 42
+    # Images used to verify that permuting neurons leaves outputs unchanged.
+    verification_samples: 128
+    verification_tolerance: 1.0e-4
+
 # ------------------------------------------------------------
 # Output
 # ------------------------------------------------------------

@@ -183,6 +183,15 @@ These observations are calculated from the current `results/combined/combined_an
 - CKA: 5/6 correct, 83.3% accuracy, predictions A=1, B=2, C=3
 - Feature drift: 2/6 correct, 33.3% accuracy, predictions A=2, B=1, C=3
 
+## Analyses Without Figures
+
+Two order-fingerprint analyses are currently reported as JSON only and have no figure in this guide:
+
+- **Fisher information** (`results/fisher/fisher.json`): one Fisher trace per task for each final sequential model, plus the guessed training order under both reading directions (`high_is_recent`, `low_is_recent`).
+- **Weight matching** (`results/weight_matching/weight_matching.json`): L2 distances before and after Git Re-Basin alignment, the task-vector cosine similarities (whole network, backbone, per layer), the permutation statistics, and the output-invariance check.
+
+Both are merged into `combined_analysis.json`, and `scripts/analyze_combined.py` prints their accuracy summaries.
+
 ## Overall Interpretation
 
 Direct fingerprinting evidence comes from prediction accuracy, the prediction matrix, raw weight-distance scores, raw CKA scores, and raw feature-drift scores. Stronger evidence would mean accuracy clearly above the computed reference, predictions distributed according to actual last tasks, numerical scores consistently favoring the actual-last-task reference, and consistency across orders.
