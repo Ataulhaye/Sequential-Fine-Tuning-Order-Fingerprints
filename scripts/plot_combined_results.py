@@ -290,10 +290,62 @@ def predicted(order, method):
     return order["representation"][key]
 
 
+def prediction_experiments(orders):
+    """Return every available last-task experiment and its stored predictions."""
+    experiments = [
+        (name, [predicted(order, method) for order in orders])
+        for name, method, _ in METHODS
+    ]
+
+    if all(isinstance(order.get("fisher"), dict) for order in orders):
+        fisher_specs = (
+            ("Fisher total: high = recent", "fisher_total", "high_is_recent"),
+            ("Fisher total: low = recent", "fisher_total", "low_is_recent"),
+            ("Fisher backbone: high = recent", "fisher_backbone", "high_is_recent"),
+            ("Fisher backbone: low = recent", "fisher_backbone", "low_is_recent"),
+        )
+        experiments.extend(
+            (
+                name,
+                [
+                    order["fisher"]["predictions"][metric][hypothesis][
+                        "predicted_last_task"
+                    ]
+                    for order in orders
+                ],
+            )
+            for name, metric, hypothesis in fisher_specs
+        )
+
+    if all(isinstance(order.get("weight_matching"), dict) for order in orders):
+        matching_specs = (
+            ("Matched full L2", "matched_full_model_l2"),
+            ("Matched backbone L2", "matched_backbone_l2"),
+            ("Unmatched full L2", "unmatched_full_model_l2"),
+            ("Matched full cosine", "matched_full_model_cosine"),
+            ("Matched backbone cosine", "matched_backbone_cosine"),
+            ("Unmatched full cosine", "unmatched_full_model_cosine"),
+        )
+        experiments.extend(
+            (
+                name,
+                [
+                    order["weight_matching"]["predictions"][metric][
+                        "predicted_last_task"
+                    ]
+                    for order in orders
+                ],
+            )
+            for name, metric in matching_specs
+        )
+
+    return experiments
+
+
 def accuracy_counts(orders):
     return [
-        sum(predicted(order, method) == order["actual_last_task"] for order in orders)
-        for _, method, _ in METHODS
+        sum(value == order["actual_last_task"] for value, order in zip(predictions, orders))
+        for _, predictions in prediction_experiments(orders)
     ]
 
 
@@ -308,7 +360,9 @@ def baseline(orders, tasks):
 def save(figure, stem, mode_specific=False):
     figure.tight_layout()
     filenames = []
-    suffix_part = REPRESENTATION_SUFFIX if mode_specific else ""
+    # The active evaluation mode is written in each mode-dependent figure title.
+    # Use one stable filename so documentation needs only one path.
+    suffix_part = ""
     # , "pdf"
     for suffix in ["png"]:
         filename = f"{stem}{suffix_part}.{suffix}"
@@ -373,38 +427,49 @@ def heatmap(
 
 
 def plot_accuracy(orders, tasks, evaluation_set):
+    experiments = prediction_experiments(orders)
+    names = [name for name, _ in experiments]
     correct = accuracy_counts(orders)
     values = np.array(correct) * 100 / len(orders)
     baseline_task, baseline_accuracy = baseline(orders, tasks)
-    figure, axis = plt.subplots(figsize=(9, 5.2))
-    bars = axis.bar([name for name, _, _ in METHODS], values, color=METHOD_COLORS)
+    colors = plt.cm.tab20(np.linspace(0, 1, len(experiments)))
+    figure, axis = plt.subplots(figsize=(max(12, len(experiments) * 0.9), 6.5))
+    bars = axis.bar(names, values, color=colors)
     axis.axhline(
         baseline_accuracy,
         color="black",
         linestyle="--",
         label=f"Always-{baseline_task} baseline: {baseline_accuracy:.1f}%",
     )
-    axis.set_ylim(0, 100)
+    axis.set_ylim(0, 108)
     axis.set_ylabel("Last-task prediction accuracy (%)")
     axis.set_title(
         f"Last-task prediction accuracy ({format_evaluation_set_label(evaluation_set)})"
     )
+    axis.tick_params(axis="x", rotation=35)
+    for label in axis.get_xticklabels():
+        label.set_ha("right")
     axis.legend()
-    for bar, value in zip(bars, values):
+    for bar, value, count in zip(bars, values, correct):
         axis.text(
             bar.get_x() + bar.get_width() / 2,
-            value + 2,
-            f"{value:.1f}%",
+            value + 1.5,
+            f"{value:.1f}%\n({count}/{len(orders)})",
             ha="center",
+            va="bottom",
+            fontsize=8,
             fontweight="bold",
         )
+    figure.tight_layout()
     return save(figure, "last_task_prediction_accuracy", mode_specific=True)
 
 
 def plot_prediction_matrix(orders, evaluation_set):
-    columns = [name for name, _, _ in METHODS]
+    experiments = prediction_experiments(orders)
+    columns = [name.replace(": ", "\n") for name, _ in experiments]
     labels = [
-        [predicted(order, method) for _, method, _ in METHODS] for order in orders
+        [predictions[row] for _, predictions in experiments]
+        for row in range(len(orders))
     ]
     values = np.array(
         [
@@ -412,7 +477,9 @@ def plot_prediction_matrix(orders, evaluation_set):
             for order, row in zip(orders, labels)
         ]
     )
-    figure, axis = plt.subplots(figsize=(11, max(4.5, len(orders) * 0.65 + 1.5)))
+    figure, axis = plt.subplots(
+        figsize=(max(11, 1.35 * len(columns)), max(4.5, len(orders) * 0.65 + 1.5))
+    )
     axis.imshow(
         values,
         cmap=ListedColormap(["#F4B6B2", "#B8E0C2"]),
@@ -420,13 +487,10 @@ def plot_prediction_matrix(orders, evaluation_set):
         vmax=1,
         aspect="auto",
     )
-    axis.set_xticks(range(len(columns)), columns, rotation=20, ha="right")
+    axis.set_xticks(range(len(columns)), columns, rotation=30, ha="right")
     axis.set_yticks(
         range(len(orders)),
-        [
-            f"{order_label(order)} (actual last: {order['actual_last_task']})"
-            for order in orders
-        ],
+        [f"{order_label(order)} (actual last: {order['actual_last_task']})" for order in orders],
     )
     axis.set_title(
         f"Predicted last task by method ({format_evaluation_set_label(evaluation_set)})"
@@ -434,6 +498,7 @@ def plot_prediction_matrix(orders, evaluation_set):
     for row, labels_row in enumerate(labels):
         for column, value in enumerate(labels_row):
             axis.text(column, row, value, ha="center", va="center", fontweight="bold")
+    figure.tight_layout()
     return save(figure, "prediction_matrix", mode_specific=True)
 
 
@@ -830,46 +895,60 @@ def plot_weight_matching_layers(raw_results, tasks):
 
 
 def plot_summary(orders, tasks, evaluation_set):
+    experiments = prediction_experiments(orders)
+    names = [name for name, _ in experiments]
     correct = accuracy_counts(orders)
     values = np.array(correct) * 100 / len(orders)
     baseline_task, baseline_accuracy = baseline(orders, tasks)
     distribution = [
-        [sum(predicted(order, method) == task for order in orders) for task in tasks]
-        for _, method, _ in METHODS
+        [sum(value == task for value in predictions) for task in tasks]
+        for _, predictions in experiments
     ]
+    colors = plt.cm.tab20(np.linspace(0, 1, len(experiments)))
     figure, (axis, table_axis) = plt.subplots(
-        1, 2, figsize=(12, 5), gridspec_kw={"width_ratios": [1.25, 1]}
+        1,
+        2,
+        figsize=(max(16, len(experiments) * 1.15), max(7, len(experiments) * 0.42)),
+        gridspec_kw={"width_ratios": [1.7, 1]},
     )
-    bars = axis.bar([name for name, _, _ in METHODS], values, color=METHOD_COLORS)
+    bars = axis.bar(names, values, color=colors)
     axis.axhline(
         baseline_accuracy,
         color="black",
         linestyle="--",
         label=f"Always-{baseline_task} baseline: {baseline_accuracy:.1f}%",
     )
-    axis.set_ylim(0, 100)
+    axis.set_ylim(0, 108)
     axis.set_ylabel("Accuracy (%)")
     axis.set_title(
         f"Last-task fingerprinting ({format_evaluation_set_label(evaluation_set)})"
     )
+    axis.tick_params(axis="x", rotation=35)
+    for label in axis.get_xticklabels():
+        label.set_ha("right")
     axis.legend(fontsize=8)
     for bar, value, count in zip(bars, values, correct):
         axis.text(
             bar.get_x() + bar.get_width() / 2,
-            value + 2,
+            value + 1.5,
             f"{value:.1f}%\n({count}/{len(orders)})",
             ha="center",
-            fontsize=9,
+            va="bottom",
+            fontsize=8,
         )
     table_axis.axis("off")
     table_axis.set_title("Prediction distribution")
-    table_axis.table(
-        cellText=[[" / ".join(map(str, row))] for row in distribution],
-        colLabels=[f"{' / '.join(tasks)} predictions"],
-        rowLabels=[name for name, _, _ in METHODS],
+    table = table_axis.table(
+        cellText=distribution,
+        colLabels=[f"Predicted {task}" for task in tasks],
+        rowLabels=names,
         cellLoc="center",
         loc="center",
     )
+    table.auto_set_font_size(False)
+    table.set_fontsize(8)
+    table.scale(1.0, 1.2)
+    figure.tight_layout()
     return save(figure, "research_summary", mode_specific=True)
 
 
