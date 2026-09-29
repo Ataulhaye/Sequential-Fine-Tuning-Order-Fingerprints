@@ -7,7 +7,6 @@ from pathlib import Path
 
 import matplotlib
 
-
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -164,7 +163,8 @@ def load_validate(path):
                 f"{name}: Fisher scores must contain total and backbone metrics",
             )
             require(
-                set(fisher.get("predictions", {})) == {"fisher_total", "fisher_backbone"},
+                set(fisher.get("predictions", {}))
+                == {"fisher_total", "fisher_backbone"},
                 f"{name}: Fisher predictions must contain total and backbone metrics",
             )
             for metric in ("fisher_total", "fisher_backbone"):
@@ -274,8 +274,12 @@ def load_validate(path):
     print("Weight distance: complete")
     print("Representation: complete")
     print(f"Loss barrier: {len(orders)}/{len(orders)}")
-    print(f"Jacobian: {sum(order.get('jacobian') is not None for order in orders)}/{len(orders)}")
-    print(f"Fisher: {sum(order.get('fisher') is not None for order in orders)}/{len(orders)}")
+    print(
+        f"Jacobian: {sum(order.get('jacobian') is not None for order in orders)}/{len(orders)}"
+    )
+    print(
+        f"Fisher: {sum(order.get('fisher') is not None for order in orders)}/{len(orders)}"
+    )
     print(
         "Weight matching: "
         f"{sum(order.get('weight_matching') is not None for order in orders)}/{len(orders)}"
@@ -344,7 +348,10 @@ def prediction_experiments(orders):
 
 def accuracy_counts(orders):
     return [
-        sum(value == order["actual_last_task"] for value, order in zip(predictions, orders))
+        sum(
+            value == order["actual_last_task"]
+            for value, order in zip(predictions, orders)
+        )
         for _, predictions in prediction_experiments(orders)
     ]
 
@@ -490,7 +497,10 @@ def plot_prediction_matrix(orders, evaluation_set):
     axis.set_xticks(range(len(columns)), columns, rotation=30, ha="right")
     axis.set_yticks(
         range(len(orders)),
-        [f"{order_label(order)} (actual last: {order['actual_last_task']})" for order in orders],
+        [
+            f"{order_label(order)} (actual last: {order['actual_last_task']})"
+            for order in orders
+        ],
     )
     axis.set_title(
         f"Predicted last task by method ({format_evaluation_set_label(evaluation_set)})"
@@ -781,15 +791,26 @@ def plot_fisher(orders, tasks, colors):
         axis.set_ylabel("Fisher trace")
         axis.grid(axis="y", alpha=0.25)
         axis.legend(fontsize=8, ncol=len(tasks))
-    axes[-1].set_xticks(x, [order_label(order) for order in orders], rotation=18, ha="right")
-    figure.suptitle("Fisher information by sequential order and evaluation task\nBlack outline = actual last task", y=1.02)
+    axes[-1].set_xticks(
+        x, [order_label(order) for order in orders], rotation=18, ha="right"
+    )
+    figure.suptitle(
+        "Fisher information by sequential order and evaluation task\nBlack outline = actual last task",
+        y=1.02,
+    )
     return save(figure, "fisher_information_scores")
 
 
 def plot_fisher_hypotheses(orders):
     labels, values, counts = [], [], []
-    for metric, metric_label in (("fisher_total", "Total"), ("fisher_backbone", "Backbone")):
-        for hypothesis, hypothesis_label in (("high_is_recent", "High = recent"), ("low_is_recent", "Low = recent")):
+    for metric, metric_label in (
+        ("fisher_total", "Total"),
+        ("fisher_backbone", "Backbone"),
+    ):
+        for hypothesis, hypothesis_label in (
+            ("high_is_recent", "High = recent"),
+            ("low_is_recent", "Low = recent"),
+        ):
             count = sum(
                 order["fisher"]["predictions"][metric][hypothesis]["last_task_correct"]
                 for order in orders
@@ -804,7 +825,12 @@ def plot_fisher_hypotheses(orders):
     axis.set_title("Fisher recency hypotheses")
     axis.grid(axis="y", alpha=0.25)
     for bar, value, count in zip(bars, values, counts):
-        axis.text(bar.get_x() + bar.get_width() / 2, value + 2, f"{value:.1f}%\n({count}/{len(orders)})", ha="center")
+        axis.text(
+            bar.get_x() + bar.get_width() / 2,
+            value + 2,
+            f"{value:.1f}%\n({count}/{len(orders)})",
+            ha="center",
+        )
     return save(figure, "fisher_hypothesis_accuracy")
 
 
@@ -815,14 +841,19 @@ def plot_weight_matching_scores(orders, tasks, colors):
         ("matched_full_model_cosine", "Matched full-model cosine", "higher"),
         ("matched_backbone_cosine", "Matched backbone cosine", "higher"),
     )
-    figure, axes = panel_axes(len(specifications), width=5.3, height=4.1, maximum_columns=2)
+    figure, axes = panel_axes(
+        len(specifications), width=5.3, height=4.1, maximum_columns=2
+    )
     x = np.arange(len(orders))
     width = 0.8 / len(tasks)
     for axis, (metric, title, direction) in zip(axes, specifications):
         for index, task in enumerate(tasks):
             bars = axis.bar(
                 x + (index - (len(tasks) - 1) / 2) * width,
-                [order["weight_matching"]["predictions"][metric]["values"][task] for order in orders],
+                [
+                    order["weight_matching"]["predictions"][metric]["values"][task]
+                    for order in orders
+                ],
                 width,
                 color=colors[task],
                 label=f"Task {task}",
@@ -832,10 +863,18 @@ def plot_weight_matching_scores(orders, tasks, colors):
                     bar.set_edgecolor("black")
                     bar.set_linewidth(2)
         axis.set_title(f"{title} ({direction} predicts recent)")
-        axis.set_xticks(x, [order_label(order) for order in orders], rotation=35, ha="right", fontsize=8)
+        axis.set_xticks(
+            x,
+            [order_label(order) for order in orders],
+            rotation=35,
+            ha="right",
+            fontsize=8,
+        )
         axis.grid(axis="y", alpha=0.25)
     axes[0].legend(ncol=len(tasks), fontsize=8)
-    figure.suptitle("Weight-matching task scores\nBlack outline = actual last task", y=1.02)
+    figure.suptitle(
+        "Weight-matching task scores\nBlack outline = actual last task", y=1.02
+    )
     return save(figure, "weight_matching_scores")
 
 
@@ -884,9 +923,18 @@ def plot_weight_matching_layers(raw_results, tasks):
         for task in tasks:
             layer_values = order["comparisons"][task]["per_layer_cosine_after"]
             rows.append(f"{' -> '.join(order['order'])} / {task}")
-            values.append([np.nan if layer_values[layer] is None else layer_values[layer] for layer in layers])
-    figure, axis = plt.subplots(figsize=(max(14, len(layers) * 0.34), max(6, len(rows) * 0.35)))
-    image = axis.imshow(np.asarray(values, dtype=float), aspect="auto", cmap="viridis", vmin=-1, vmax=1)
+            values.append(
+                [
+                    np.nan if layer_values[layer] is None else layer_values[layer]
+                    for layer in layers
+                ]
+            )
+    figure, axis = plt.subplots(
+        figsize=(max(14, len(layers) * 0.34), max(6, len(rows) * 0.35))
+    )
+    image = axis.imshow(
+        np.asarray(values, dtype=float), aspect="auto", cmap="viridis", vmin=-1, vmax=1
+    )
     axis.set_xticks(range(len(layers)), layers, rotation=90, fontsize=7)
     axis.set_yticks(range(len(rows)), rows, fontsize=7)
     axis.set_title("Per-layer cosine after weight matching")
@@ -985,10 +1033,19 @@ def main():
     )
     generated += plot_forgetting(orders, tasks, colors)
     # Standard loss plots, if regular loss data exists.
-    if any("loss" in order for order in orders):
+    has_loss_barrier = all(
+        isinstance(order.get("loss_barrier"), dict)
+        and isinstance(order["loss_barrier"].get("barriers"), dict)
+        for order in orders
+    )
+
+    if has_loss_barrier:
         generated += plot_loss(orders, tasks, colors)
     else:
-        print("Skipping loss plots: loss results are not available.")
+        print(
+            "Skipping loss-barrier curves: "
+            "loss-barrier results are not available for all orders."
+        )
 
     # --------------------------------------------------------
     # Optional loss-barrier figures
