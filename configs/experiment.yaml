@@ -130,12 +130,12 @@ representation:
 
 analysis:
   loss_barrier:
-    enabled: false
+    enabled: true
     # Number of interpolation points between reference and sequential weights.
     num_points: 11
 
   jacobian:
-    enabled: false
+    enabled: true
     # Maximum number of test images analyzed per model and task.
     max_samples: 100
 
