@@ -66,6 +66,10 @@ def main():
 
     jacobian_path = result_root / "jacobian" / "jacobian_analysis.json"
 
+    fisher_path = result_root / "fisher" / "fisher.json"
+
+    weight_matching_path = result_root / "weight_matching" / "weight_matching.json"
+
     # --------------------------------------------------------
     # Load existing analyses
     # --------------------------------------------------------
@@ -165,6 +169,52 @@ def main():
         print()
         print("Jacobian analysis disabled in configuration.")
 
+    fisher_results = None
+    weight_matching_results = None
+
+    fisher_enabled = config["analysis"].get("fisher", {}).get("enabled", False)
+
+    weight_matching_enabled = (
+        config["analysis"].get("weight_matching", {}).get("enabled", False)
+    )
+
+    if fisher_enabled:
+        if not fisher_path.exists():
+            raise FileNotFoundError(
+                "Fisher analysis is enabled, but the result file "
+                f"was not found: {fisher_path}"
+            )
+
+        print()
+        print("Loading Fisher information results...")
+
+        fisher_results = load_json(fisher_path)
+
+        print(f"Loaded {len(fisher_results['orders'])} Fisher results.")
+    else:
+        print()
+        print("Fisher analysis disabled in configuration.")
+
+    if weight_matching_enabled:
+        if not weight_matching_path.exists():
+            raise FileNotFoundError(
+                "Weight-matching analysis is enabled, but the result file "
+                f"was not found: {weight_matching_path}"
+            )
+
+        print()
+        print("Loading weight-matching results...")
+
+        weight_matching_results = load_json(weight_matching_path)
+
+        print(
+            f"Loaded {len(weight_matching_results['orders'])} "
+            "weight-matching results."
+        )
+    else:
+        print()
+        print("Weight-matching analysis disabled in configuration.")
+
     # --------------------------------------------------------
     # Combine
     # --------------------------------------------------------
@@ -176,6 +226,8 @@ def main():
         representation_results=representation_results,
         loss_barrier_results=loss_barrier_results,
         jacobian_results=jacobian_results,
+        fisher_results=fisher_results,
+        weight_matching_results=weight_matching_results,
     )
 
     # --------------------------------------------------------
@@ -257,6 +309,35 @@ def main():
         f"{drift_correct}/{total} "
         f"({100.0 * drift_correct / total:.2f}%)"
     )
+
+    if fisher_results is not None:
+        print()
+        print("-" * 70)
+        print("FISHER INFORMATION")
+        print("-" * 70)
+
+        for metric, hypotheses in fisher_results["summary"]["metrics"].items():
+            for hypothesis, values in hypotheses.items():
+                print(
+                    f"{metric} / {hypothesis}: "
+                    f"full order {values['correct_orders']}/{total} "
+                    f"({100.0 * values['order_accuracy']:.2f}%), "
+                    f"last task {values['correct_last_tasks']}/{total} "
+                    f"({100.0 * values['last_task_accuracy']:.2f}%)"
+                )
+
+    if weight_matching_results is not None:
+        print()
+        print("-" * 70)
+        print("WEIGHT MATCHING")
+        print("-" * 70)
+
+        for metric, values in weight_matching_results["summary"]["metrics"].items():
+            print(
+                f"{metric:>28}: "
+                f"{values['correct_predictions']}/{total} "
+                f"({100.0 * values['prediction_accuracy']:.2f}%)"
+            )
 
     # --------------------------------------------------------
     # Save

@@ -496,7 +496,128 @@ Computes input-output Jacobian sensitivity on task probe images to understand ho
 
 ---
 
-### STEP 10: Combined Analysis
+### STEP 10: Fisher Information Analysis
+
+**Script:** `scripts/analyze_fisher.py`
+
+**Inputs:**
+- `configs/experiment.yaml` (configuration)
+- Final sequential checkpoints
+- CIFAR-100 dataset
+
+Note: no single-task reference models are needed. The Fisher trace is a property of the final checkpoint alone.
+
+**Produces:**
+```
+results/fisher/fisher.json
+```
+
+**Purpose:**
+
+Estimates the Fisher information trace of each final checkpoint with respect to each task, and sorts the three numbers into a guessed training order.
+
+**Analysis:**
+- Draw a fixed subset of `analysis.fisher.num_samples` samples per task (default 1000, `analysis.fisher.split` selects the split, deterministic preprocessing)
+- For each sample individually: forward pass, sample a label from the model's own predicted probabilities, compute the loss for that sampled label, back-propagate, square and accumulate every gradient entry
+- Gradients are never applied; the weights are unchanged
+- Average over samples and sum over all weights -> one number per task
+- Rank the three numbers under both hypotheses: `high_is_recent` and `low_is_recent`
+
+**Runtime:** one backward pass per sample; roughly five minutes for six orders with 1000 samples per task on a single GPU.
+
+**Interpretation:**
+- `low_is_recent` correct and `high_is_recent` wrong: a recently learned task leaves a flatter (lower-curvature) solution for its own data
+- Both directions near chance: no curvature fingerprint
+- Full-order accuracy should be compared against 1/6, last-task accuracy against 1/3
+
+**Example output:**
+```json
+{
+  "analysis": "fisher_information",
+  "estimator": "true_fisher_sampled_labels",
+  "orders": [
+    {
+      "order": ["A", "B", "C"],
+      "actual_last_task": "C",
+      "fisher": {
+        "A": {"fisher_total": 11701.5, "fisher_backbone": 11526.9, "fisher_head": 174.6, "num_samples": 1000}
+      },
+      "predictions": {
+        "fisher_total": {
+          "low_is_recent": {
+            "predicted_order": ["A", "B", "C"],
+            "predicted_last_task": "C",
+            "order_correct": true,
+            "last_task_correct": true
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+---
+
+### STEP 11: Weight-Matching Analysis (Git Re-Basin)
+
+**Script:** `scripts/analyze_weight_matching.py`
+
+**Inputs:**
+- `configs/experiment.yaml` (configuration)
+- `checkpoints/verified_initialization/base_model.pt` (shared initialization)
+- Single-task checkpoints
+- Final sequential checkpoints
+- CIFAR-100 test set (images for the invariance check)
+
+**Produces:**
+```
+results/weight_matching/weight_matching.json
+```
+
+**Purpose:**
+
+Removes the permutation symmetry of the network before measuring parameter-space similarity, and additionally compares the *direction* in which training moved the weights.
+
+**Analysis:**
+- Align the final checkpoint to each single-task reference with the Git Re-Basin weight-matching algorithm (coordinate descent with the Hungarian algorithm)
+- Verify that the logits of all three heads are unchanged after the permutation; the script aborts if the difference exceeds `analysis.weight_matching.verification_tolerance`
+- Report L2 distance before and after matching, for the full model and for the backbone only
+- Report the cosine similarity between `(theta_final - theta_init)` and `(theta_task - theta_init)` for the full model, the backbone, and per layer
+
+**Interpretation:**
+- Identity permutations mean all checkpoints already live in the same basin, which is expected here because every run starts from the same `theta_init`; matched and unmatched distances are then identical
+- A large gap between unmatched and matched distance would mean the plain L2 comparison was dominated by neuron reordering
+- Per-layer cosines are `null` for the heads of tasks a reference model never trained on, because those weights never moved from their initialization
+
+**Example output:**
+```json
+{
+  "analysis": "weight_matching",
+  "algorithm": "git_re_basin_weight_matching",
+  "orders": [
+    {
+      "order": ["A", "B", "C"],
+      "actual_last_task": "C",
+      "comparisons": {
+        "A": {
+          "l2": {"full_model": {"before": 7.905, "after": 7.905}},
+          "cosine": {"full_model": {"before": 0.159, "after": 0.159}},
+          "permutation": {"iterations": 1, "converged": true, "is_identity": true},
+          "verification": {"max_logit_difference": 0.0, "passed": true}
+        }
+      },
+      "predictions": {
+        "matched_full_model_l2": {"predicted_last_task": "A", "correct": false}
+      }
+    }
+  ]
+}
+```
+
+---
+
+### STEP 12: Combined Analysis
 
 **Script:** `scripts/analyze_combined.py`
 
@@ -504,8 +625,10 @@ Computes input-output Jacobian sensitivity on task probe images to understand ho
 - `results/sequential/*/metrics.json`
 - `results/weight_distance/weight_distance.json`
 - `results/representation/representation.json`
-- `results/loss_barrier/loss_barrier.json` (if available)
-- `results/jacobian/jacobian_analysis.json` (if available)
+- `results/loss_barrier/loss_barrier.json` (if enabled)
+- `results/jacobian/jacobian_analysis.json` (if enabled)
+- `results/fisher/fisher.json` (if enabled)
+- `results/weight_matching/weight_matching.json` (if enabled)
 
 **Produces:**
 ```
@@ -551,7 +674,9 @@ results/combined/combined_analysis.json
 
 **Purpose:**
 
-This combines the results from STEP 4, 6, and 7 into a single comprehensive analysis file without recalculating any metrics. When the optional loss-barrier and Jacobian files are present, they are also merged into the same order-level summary. It serves as the primary reference for interpreting the complete experiment.
+This combines the results from STEP 4, 6, and 7 into a single comprehensive analysis file without recalculating any metrics. When the optional loss-barrier, Jacobian, Fisher and weight-matching files are present, they are also merged into the same order-level summary. It serves as the primary reference for interpreting the complete experiment.
+
+Each optional analysis is loaded only when its `analysis.<name>.enabled` flag is `true` in `configs/experiment.yaml`; if a flag is enabled but the result file is missing, the script fails instead of silently skipping it.
 
 ---
 
@@ -625,6 +750,16 @@ configs/experiment.yaml
          |         v
          |     results/jacobian/jacobian_analysis.json
          |
+         +---> analyze_fisher.py
+         |         |
+         |         v
+         |     results/fisher/fisher.json
+         |
+         +---> analyze_weight_matching.py
+         |         |
+         |         v
+         |     results/weight_matching/weight_matching.json
+         |
          v
      analyze_combined.py
              |
@@ -646,6 +781,8 @@ configs/experiment.yaml
 | `analyze_weight_distance.py` | config, checkpoints | weight_distance.json | Calculate L2 distances |
 | `analyze_loss_barrier.py` | config, checkpoints, CIFAR-100 | loss_barrier.json | Calculate loss-barrier curves (optional) |
 | `analyze_jacobian.py` | config, probe, checkpoints | jacobian_analysis.json | Calculate Jacobian sensitivity (optional) |
+| `analyze_fisher.py` | config, sequential checkpoints, CIFAR-100 | fisher.json | Fisher trace per task and guessed training order |
+| `analyze_weight_matching.py` | config, base model, all checkpoints, CIFAR-100 test | weight_matching.json | Git Re-Basin alignment, matched L2, task-vector cosine |
 | `analyze_combined.py` | existing result JSON files | combined_analysis.json | Combine core and optional advanced results |
 | `plot_combined_results.py` | combined_analysis.json | PNG/PDF figures under `figures/combined/` | Plot research figures and diagnostics |
 
@@ -661,6 +798,8 @@ The lightweight checks live in `tests/` rather than the main workflow steps. Use
 | `tests/test_dataset.py` | Checks task dataset construction and task-local labels. |
 | `tests/test_representation.py` | Checks representation extraction and pairwise CKA/feature-drift calculations on the fixed probe. |
 | `tests/test_reproducibility.py` | Checks deterministic behavior controlled by the project seeds. |
+| `tests/test_fisher.py` | Checks that the Fisher estimate is deterministic, positive, leaves the weights untouched, and that both ranking directions are reported. |
+| `tests/test_weight_matching.py` | Checks the permutation specification, that permuting neurons does not change the outputs, and that weight matching recovers a known permutation. |
 | `tests/smoke_test_training.py` | Runs a small training smoke test to catch basic training-loop failures. |
 
 ---
@@ -693,14 +832,18 @@ python scripts/analyze_weight_distance.py
 python scripts/analyze_loss_barrier.py       # Loss-barrier curves
 python scripts/analyze_jacobian.py           # Jacobian sensitivity
 
-# 9. Combine all results
+# 9. Order fingerprints without / modulo permutation symmetry
+python scripts/analyze_fisher.py             # Fisher information ranking
+python scripts/analyze_weight_matching.py    # Git Re-Basin alignment + cosine
+
+# 10. Combine all results
 python scripts/analyze_combined.py
 
-# 10. Generate report figures
+# 11. Generate report figures
 python scripts/plot_combined_results.py
 ```
 
-The plotting script reads `results/combined/combined_analysis.json` and writes the research figure suite under `figures/combined/`, including prediction accuracy, prediction matrices, raw score plots, forgetting, loss-barrier diagnostics, Jacobian diagnostics, and a compact research summary. See `docs/FIGURES.md` for a visual guide to the generated plots.
+The plotting script reads `results/combined/combined_analysis.json` and writes the research figure suite under `figures/combined/`, including prediction accuracy, prediction matrices, raw score plots, forgetting, loss-barrier diagnostics, Jacobian diagnostics, and a compact research summary. See `docs/FIGURES.md` for a visual guide to the generated plots. The Fisher and weight-matching results are currently reported as JSON only and are not plotted.
 
 Optional checks after setup or code changes:
 
@@ -710,6 +853,9 @@ python tests/test_dataset.py
 python tests/test_representation.py
 python tests/test_reproducibility.py
 python tests/smoke_test_training.py
+
+# pytest-based checks
+python -m pytest tests/test_fisher.py tests/test_weight_matching.py
 ```
 
 ---

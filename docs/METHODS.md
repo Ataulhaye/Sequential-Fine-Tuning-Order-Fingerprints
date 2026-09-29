@@ -368,6 +368,11 @@ prediction_drift = argmin_task(drift[task])
 | Backbone L2 | Backbone parameters | Minimum distance | Most similar backbone |
 | CKA | Feature space structure | Maximum similarity | Most similar representation |
 | Feature drift | Feature space magnitude | Minimum drift | Smallest feature movement |
+| Matched L2 (Section 15) | Parameter space modulo permutation | Minimum distance | Closest after removing neuron reordering |
+| Task-vector cosine (Section 15) | Update direction | Maximum similarity | Moved in the most similar direction |
+| Fisher trace (Section 14) | Curvature of the final model | Sorted ranking, both directions | Order fingerprint without reference models |
+
+The Fisher ranking additionally yields a guess for the complete training order; all other methods only predict the last task.
 
 ### Correctness Evaluation
 
@@ -547,17 +552,143 @@ Reveals which color channel carries most predictive information.
 
 ---
 
-## 14. Combined Analysis
+## 14. Fisher Information
+
+### Motivation
+
+All methods above need reference models. The Fisher information matrix is a property of the **final checkpoint alone**: it measures how sharply the model's own predictive distribution reacts to parameter changes for the data of a given task.
+
+If sequential fine-tuning leaves an order fingerprint in the curvature of the solution, the three per-task Fisher traces `F_A`, `F_B`, `F_C` should be ordered consistently with the training order.
+
+### Estimator
+
+The **true** (model-sampled) Fisher is used, not the empirical one. For a task `T` with samples `x_1 ... x_N`:
+
+```
+F_T = (1 / N) * sum_n sum_p ( d/dtheta_p  -log p( y_n_hat | x_n ) )^2
+
+with y_n_hat ~ p( . | x_n )
+```
+
+The dataset ground-truth label is deliberately **not** used: the label is drawn from the model's own predicted class probabilities. This makes `F_T` the trace of the Fisher information matrix rather than a measure of fit quality.
+
+### Procedure
+
+For each of the three tasks, and one sample at a time:
+
+1. Run the sample through the final checkpoint (the task's own head is used).
+2. Draw a label at random from the predicted class probabilities.
+3. Compute the cross-entropy loss for that sampled label and back-propagate.
+4. Square every gradient entry and accumulate.
+5. Clear the gradients. **No optimizer step is taken**, the weights never change.
+
+Averaging over the samples and summing over all weights yields one scalar per task. The analysis additionally reports the same quantity restricted to the shared backbone (`fisher_backbone`) and to the task head (`fisher_head`); the heads of the other two tasks receive no gradient and contribute zero.
+
+### Sample Selection
+
+`analysis.fisher` in `configs/experiment.yaml` controls the estimate:
+
+- `num_samples` (default 1000) samples per task,
+- `split` (default `train`) selects the CIFAR-100 split,
+- `seed` controls both the subset selection and the label sampling.
+
+Deterministic (test-set) preprocessing is used even for the train split, and the identical sample subset is reused for every checkpoint, so the traces are comparable across orders.
+
+### Prediction Rule
+
+Sorting `F_A`, `F_B`, `F_C` gives a guessed training order. Whether a high Fisher trace means "learned recently" or "learned long ago" is not known a priori, so both reading directions are computed and evaluated:
+
+| Hypothesis | Guessed order | Guessed last task |
+|------------|---------------|-------------------|
+| `high_is_recent` | ascending in `F` | task with the largest `F` |
+| `low_is_recent` | descending in `F` | task with the smallest `F` |
+
+For each direction the full guessed order and the guessed last task are compared against the ground truth. Random chance is 1/6 for the full order and 1/3 for the last task.
+
+---
+
+## 15. Weight Matching (Git Re-Basin)
+
+### Motivation
+
+Neural networks have permutation symmetries: the channels of a convolution can be reordered, and with the matching reordering of the following layer the network computes exactly the same function. Two functionally similar models can therefore be far apart in L2 distance simply because their neurons are numbered differently, which makes the plain weight distance of Section 8 misleading.
+
+Weight matching removes this symmetry before measuring distance.
+
+### Method
+
+The implementation follows the weight-matching algorithm of Ainsworth, Hayase and Srinivasa, *Git Re-Basin: Merging Models modulo Permutation Symmetries* (ICLR 2023).
+
+**Permutation specification.** Every parameter axis is assigned to a permutation group. For the ResNet18 backbone used here:
+
+- `P_stem` — output channels of `conv1`/`bn1`. Because the blocks of `layer1` use identity shortcuts, this is also the residual stream of `layer1`.
+- `P_layer2`, `P_layer3`, `P_layer4` — residual streams of the remaining stages. The downsample convolution writes into the same stream and therefore shares the permutation.
+- `P_layerX_Y_inner` — output of the first convolution inside block `Y`, free because it is consumed only by the second convolution.
+
+Batch-norm weights, biases and running statistics follow the channel permutation of their layer; the running statistics are permuted but excluded from the matching cost. The 5 output units of each task head are class labels and are never permuted. The head input dimension is tied to `P_layer4`.
+
+**Optimization.** Holding all other groups fixed, the optimal permutation of one group maximizes
+
+```
+sum_i  < w_reference[i] , w_target[perm(i)] >
+```
+
+summed over all parameter axes tied to that group. This is a linear assignment problem, solved exactly with the Hungarian algorithm. The groups are visited in random order and the sweep is repeated until no group changes any more (coordinate descent). The procedure is started from the identity permutation.
+
+**Verification.** After alignment the permuted checkpoint is evaluated on a fixed batch of test images for all three heads and compared with the original checkpoint. The maximum absolute logit difference must stay below `analysis.weight_matching.verification_tolerance`; otherwise the analysis aborts. This proves that the alignment only relabeled neurons and did not change the function.
+
+### Metrics
+
+For every sequential final checkpoint and every single-task reference:
+
+1. **L2 before matching** — the distance of Section 8, repeated here for direct comparison.
+2. **L2 after matching** — the distance between the aligned checkpoint and the reference, full model and backbone only.
+3. **Task-vector cosine similarity**
+
+```
+cos( theta_final - theta_init ,  theta_task - theta_init )
+```
+
+   where `theta_init` is the shared initialization stored in
+   `checkpoints/verified_initialization/base_model.pt`. Unlike L2, this is not
+   affected by how far training moved the weights in total; it only compares
+   the direction of movement. It is computed for the whole network, for the
+   backbone only, and per layer.
+
+   Note that a single-task reference never updates the heads of the other two
+   tasks: those parameters still hold their initialization values, so their
+   direction is exactly zero. Per-layer cosines are reported as `null` for
+   those layers, and in the full-model cosine they enlarge the norm of the
+   sequential task vector without contributing to the inner product. The
+   backbone cosine is free of this asymmetry.
+
+### Prediction Rule
+
+- Minimum matched L2 distance predicts the last task.
+- Maximum cosine similarity predicts the last task, because the most recent task should point in the most similar direction.
+
+Both are reported with and without alignment so the effect of weight matching is visible.
+
+### Expected Behaviour in This Project
+
+All checkpoints in this project descend from one shared initialization and are fine-tuned for a limited number of epochs, so they are expected to stay in the same basin. Weight matching then returns the identity permutation and leaves the distances unchanged. This is a meaningful negative control: it shows that the plain L2 results of Section 8 are *not* an artifact of neuron reordering. Weight matching becomes essential as soon as checkpoints with different initializations are compared.
+
+---
+
+## 16. Combined Analysis
 
 ### Purpose
 
-Synthesize results from three independent analyses into a single interpretable summary.
+Synthesize the results of the independent analyses into a single interpretable summary.
 
 ### Inputs
 
 1. **Sequential evaluation:** Forgetting for each task
 2. **Weight-distance analysis:** Predictions from full-model and backbone L2
 3. **Representation analysis:** Predictions from CKA and feature drift
+4. **Fisher analysis (when enabled):** Per-task traces and both ranking directions
+5. **Weight-matching analysis (when enabled):** Matched distances and cosine similarities
+6. **Loss-barrier and Jacobian analyses (when enabled)**
 
 ### Output
 
@@ -588,7 +719,7 @@ The combined analysis **does not recalculate** any metrics. It only:
 
 ---
 
-## 15. Reproducibility
+## 17. Reproducibility
 
 ### Two Independent Seeds
 
@@ -625,25 +756,26 @@ The seeds ensure **deterministic execution on the same hardware**.
 
 ---
 
-## 16. Summary of Hypotheses and Methods
+## 18. Summary of Hypotheses and Methods
 
 ### H1: Last-Task Fingerprint
 
 **Hypothesis:** Sequential fine-tuning leaves a measurable fingerprint of the last task.
 
-**Test:** All four methods should predict the last task better than random (>33%).
+**Test:** Every method should predict the last task better than random (>33%).
 
-**Evidence from current experiment:**
-- All methods achieve ~33% accuracy (2/6 correct)
-- Suggests fingerprint may be weak or absent in current setup
+**Evidence from the current experiment** (20 epochs per task, all-test evaluation set, six orders):
+- CKA: 6/6, feature drift: 5/6 — clearly above chance
+- Full-model and backbone L2: 0/6, also after weight matching
+- Fisher trace with `low_is_recent`: 4/6
 
 ### H2: Representation > Weight Space
 
 **Hypothesis:** Representation-level similarity (CKA, drift) captures task-order effects better than parameter-space distance.
 
-**Test:** Compare accuracy of weight distance vs. representation methods.
+**Test:** Compare the accuracy of weight distance against the representation methods.
 
-**Current status:** Both achieve similar accuracy (33%)
+**Current status:** Supported. Representation methods reach 83-100%, while parameter-space distance reaches 0% and systematically points at the first task instead of the last one. Weight matching shows that this is not caused by permutation symmetry.
 
 ### H3: Forgetting Correlation
 
@@ -653,36 +785,45 @@ The seeds ensure **deterministic execution on the same hardware**.
 
 **Current observation:** Variable forgetting patterns, no clear last-task advantage
 
+### H4: Curvature Fingerprint
+
+**Hypothesis:** The Fisher information trace of the final checkpoint depends on when a task was learned.
+
+**Test:** Rank `F_A`, `F_B`, `F_C` and evaluate both reading directions.
+
+**Current observation:** The `low_is_recent` direction predicts the last task in 4/6 runs and the complete order in 1/6; the `high_is_recent` direction is never correct. In this setup the most recently learned task therefore has the *lowest* Fisher trace.
+
 ---
 
-## 17. Interpretation and Limitations
+## 19. Interpretation and Limitations
 
 ### Current Results
 
-All methods (full-model L2, backbone L2, CKA, feature drift) achieve approximately **33%** accuracy on predicting the last task, matching random guessing.
+With 20 epochs per task and the all-test evaluation set: CKA 6/6, feature drift 5/6, Fisher (`low_is_recent`) 4/6, full-model and backbone L2 0/6 both before and after weight matching.
 
 ### Possible Interpretations
 
-1. **Task order has no fingerprint:** Sequential fine-tuning doesn't leave detectable traces
-2. **Fingerprint requires different metrics:** Alternative similarity measures needed
-3. **Model architecture effects:** ResNet18 may not preserve task order information
-4. **Insufficient training:** Single epoch smoke test may be under-trained
-5. **Task similarity effects:** Tasks A, B, C may be too similar or dissimilar
+1. **The fingerprint lives in representation space:** the last task is clearly detectable through CKA and feature drift
+2. **Parameter-space distance measures something else:** it consistently selects the first task, i.e. it is dominated by how far the weights travelled in total rather than by recency
+3. **No permutation artifact:** weight matching returns the identity permutation, so the L2 result is a property of the solutions, not of neuron numbering
+4. **Curvature carries order information:** the Fisher trace is lowest for the most recent task, but the full-order ranking is still near chance
+5. **Task similarity effects:** tasks A, B, C may be too similar or too dissimilar
 
 ### Limitations
 
-1. **Single epoch training:** Current setup uses 1 epoch (smoke test)
+1. **Single training run:** results shown for seed=42 only
 2. **Small dataset:** CIFAR-100 has limited examples per class
-3. **No task boundaries:** Continual learning without explicit task awareness
-4. **Limited seed variation:** Results shown for seed=42 only
-5. **Head architecture fixed:** Task heads always 5-class regardless of cumulative knowledge
+3. **No task boundaries:** continual learning without explicit task awareness
+4. **Six orders only:** with six runs a single flipped prediction changes the accuracy by 16.7 percentage points
+5. **Shared initialization:** because all checkpoints share `theta_init`, weight matching cannot show its benefit here
+6. **Head architecture fixed:** task heads are always 5-class regardless of cumulative knowledge
 
 ### Next Steps for Future Research
 
-1. Train for multiple epochs on university server
-2. Vary training seeds and aggregate statistics
-3. Try alternative model architectures
-4. Investigate gradient flow and learning dynamics
+1. Vary training seeds and aggregate statistics
+2. Repeat weight matching with independently initialized reference models
+3. Investigate why parameter distance favors the first task
+4. Try alternative model architectures
 5. Analyze intermediate layers (not just penultimate)
-6. Consider task-aware vs. task-agnostic learning
-7. Evaluate with different task combinations
+6. Evaluate with different task combinations and more than three tasks
+7. Extend the figure script to the Fisher and weight-matching results

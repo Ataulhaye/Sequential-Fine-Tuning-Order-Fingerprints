@@ -19,6 +19,21 @@ def index_orders(results: Dict) -> Dict[str, Dict]:
     return {"_".join(entry["order"]): entry for entry in results["orders"]}
 
 
+def optional_order_entry(
+    results: Dict | None,
+    order_name: str,
+) -> Dict | None:
+    """Look up one order in an optional analysis result file."""
+
+    if results is None:
+        return None
+
+    if isinstance(results, dict) and "orders" in results:
+        return index_orders(results).get(order_name)
+
+    return results.get(order_name)
+
+
 def combine_order_results(
     order: List[str],
     sequential_results: Dict,
@@ -26,6 +41,8 @@ def combine_order_results(
     representation_results: Dict,
     loss_barrier_results: Dict | None = None,
     jacobian_results: Dict | None = None,
+    fisher_results: Dict | None = None,
+    weight_matching_results: Dict | None = None,
 ) -> Dict:
     """Combine all existing analyses for one task order."""
 
@@ -48,21 +65,13 @@ def combine_order_results(
     weight = weight_by_order[order_name]
     representation = representation_by_order[order_name]
 
-    loss_barrier_data = None
-    if loss_barrier_results is not None:
-        if isinstance(loss_barrier_results, dict) and "orders" in loss_barrier_results:
-            loss_barrier_lookup = index_orders(loss_barrier_results)
-            loss_barrier_data = loss_barrier_lookup.get(order_name)
-        else:
-            loss_barrier_data = loss_barrier_results.get(order_name)
+    loss_barrier_data = optional_order_entry(loss_barrier_results, order_name)
 
-    jacobian_data = None
-    if jacobian_results is not None:
-        if isinstance(jacobian_results, dict) and "orders" in jacobian_results:
-            jacobian_lookup = index_orders(jacobian_results)
-            jacobian_data = jacobian_lookup.get(order_name)
-        else:
-            jacobian_data = jacobian_results.get(order_name)
+    jacobian_data = optional_order_entry(jacobian_results, order_name)
+
+    fisher_data = optional_order_entry(fisher_results, order_name)
+
+    weight_matching_data = optional_order_entry(weight_matching_results, order_name)
 
     result = {
         "order": list(order),
@@ -111,6 +120,25 @@ def combine_order_results(
     if jacobian_data is not None:
         result["jacobian"] = jacobian_data
 
+    if fisher_data is not None:
+        result["fisher"] = {
+            "scores": fisher_data["scores"],
+            "predictions": fisher_data["predictions"],
+        }
+
+    if weight_matching_data is not None:
+        result["weight_matching"] = {
+            "predictions": weight_matching_data["predictions"],
+            "comparisons": {
+                task: {
+                    "l2": comparison["l2"],
+                    "cosine": comparison["cosine"],
+                    "verification": comparison["verification"],
+                }
+                for task, comparison in weight_matching_data["comparisons"].items()
+            },
+        }
+
     return result
 
 
@@ -121,6 +149,8 @@ def combine_all_results(
     representation_results: Dict,
     loss_barrier_results: Dict | None = None,
     jacobian_results: Dict | None = None,
+    fisher_results: Dict | None = None,
+    weight_matching_results: Dict | None = None,
 ) -> Dict:
     """Combine all configured sequential orders."""
 
@@ -135,6 +165,8 @@ def combine_all_results(
                 representation_results=representation_results,
                 loss_barrier_results=loss_barrier_results,
                 jacobian_results=jacobian_results,
+                fisher_results=fisher_results,
+                weight_matching_results=weight_matching_results,
             )
         )
 
