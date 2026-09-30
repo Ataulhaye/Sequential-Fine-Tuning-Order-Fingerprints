@@ -234,8 +234,6 @@
     \midrule
     \multicolumn{3}{@{}l}{\textcolor{navy}{\textbf{Forgetting diagnostics}}}\\
     Forgetting & Accuracy after learning vs.\ final accuracy & -\\
-    Loss barrier & Loss along path reference $\to$ final model & -\\
-    Jacobian sensitivity & Logit gradient w.r.t.\ the input image & -\\
     \bottomrule
   \end{tabular}
 \end{frame}
@@ -372,7 +370,7 @@
       \begin{itemize}
         \item Dots and crosses coincide everywhere: distances did not change.
         \item This fits the expected identity permutation with a shared initialization.
-        \item The cosine of weight updates is highest for the first task (about 0.59 to 0.69, others 0.16 to 0.19), so it fails like L2.
+        \item The cosine of weight updates is highest for the first task, so it fails like L2.
       \end{itemize}
     \end{column}
   \end{columns}
@@ -380,7 +378,7 @@
 
 
 % ======================================================
-\begin{frame}{Fisher: lowest trace marks the last task in 4 of 6}
+\begin{frame}{Fisher information}
   \begin{columns}[T]
     \begin{column}{0.52\textwidth}
       \showfig{fisher_hypothesis_accuracy.png}{4.8cm}
@@ -429,7 +427,7 @@
     \midrule
     H1 & Can we predict the final learned task? & CKA 6/6, feature drift 5/6, Fisher (low is recent) 4/6. L2 and cosine 0/6.\\
     H2 & Can we predict the full training order? & In combination of CKA and weight distance\\
-    H3 & Explore catastrophic forgetting & ...\\
+    H3 & Explore catastrophic forgetting & Accuracies drop sharply for older tasks\\
     \bottomrule
   \end{tabular}
 \end{frame}
@@ -448,7 +446,7 @@
 \end{frame}
 
 % ======================================================
-\begin{frame}{Conclusions and next steps}
+\begin{frame}{Conclusions}
       \textbf{Conclusions}
       \bigskip
       \begin{itemize}
@@ -456,6 +454,14 @@
         \item Weight distance and update cosine point at the first task.
         \item Forgetting adds no independent evidence.
       \end{itemize}
+\end{frame}
+
+% ======================================================
+\begin{frame}{Questions}
+    \centering
+    \textbf{Thank you for your attention!}
+    \bigskip
+    \textbf{Any Questions?}
 \end{frame}
 
 \end{document}
