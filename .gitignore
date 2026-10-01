@@ -64,7 +64,6 @@ checkpoints/
 
 # Generated experiment outputs
 results/*
-figures/*
 
 # ============================================================
 # Logs
@@ -96,3 +95,4 @@ logs/
 *.fls
 *.fdb_latexmk
 *.synctex.gz
+docs/LatexPresentation/figures/*.png

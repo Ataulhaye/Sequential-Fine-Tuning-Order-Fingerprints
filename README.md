@@ -512,3 +512,25 @@ Remember:
 - Workflow: [docs/WORKFLOW.md](docs/WORKFLOW.md)
 - Methods: [docs/METHODS.md](docs/METHODS.md)
 - Main Module: [src/sequential_finetuning/](src/sequential_finetuning/)
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
+The MIT License applies to the original source code of this repository. Third-party software, datasets, pretrained models, and other external resources remain subject to their respective licenses and terms.
+
+## Citation
+
+If you use this code, methodology, or results in academic work, please cite this repository:
+
+```bibtex
+@software{sequential_finetuning_order_fingerprints_2026,
+  author  = {Ata Ul Haye},
+  title   = {Sequential Fine-Tuning Order Fingerprints},
+  year    = {2026},
+  license = {MIT},
+  url     = {[https://github.com/Ataulhaye/Sequential-Fine-Tuning-Order-Fingerprints]}
+}
+```
+
+Please also cite the original sources for any datasets, models, or external methods used by this project where applicable.

@@ -1,0 +1,22 @@
+```yaml
+cff-version: 1.2.0
+title: "Sequential Fine-Tuning Order Fingerprints"
+type: software
+authors:
+  - family-names: "Haye"
+    given-names: "Ata Ul"
+date-released: 2026
+version: "1.0.0"
+license: MIT
+repository-code: "https://github.com/Ataulhaye/Sequential-Fine-Tuning-Order-Fingerprints"
+abstract: "Code and experimental framework for investigating whether the final state of a sequentially fine-tuned neural network reveals the order in which tasks were learned."
+keywords:
+  - continual learning
+  - sequential fine-tuning
+  - neural networks
+  - model fingerprinting
+  - representation learning
+  - CIFAR-100
+  - ResNet-18
+message: "If you use this software or its results in academic work, please cite it."
+```
