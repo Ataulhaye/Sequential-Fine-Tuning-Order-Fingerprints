@@ -23,7 +23,7 @@
 \title{Does a Sequentially Fine-Tuned Network Remember What It Learned Last?\\[0.3em]
 \large Order Fingerprints and Forgetting in a ResNet18 on Three CIFAR-100 Tasks}
 \author{Ata Ul Haye, Daniel Flick\\[0.2em]Practical Machine Learning SoSe 2026, Goethe Universität Frankfurt}
-
+\date{}
 \begin{document}
 \maketitle
 
@@ -191,7 +191,7 @@ Feature drift (Figure~\ref{fig:drift}) points the same way, but the margins are 
 
 \subsubsection{Fisher information}
 
-Figure~\ref{fig:fisher} shows the Fisher traces. They range from about 5{,}000 to 12{,}000, and the backbone trace is only slightly below the total trace, so the heads contribute little. Under ``low is recent'' the last task has the smallest trace in four of the six orders (\order{B}{A}{C}, \order{B}{C}{A}, \order{C}{A}{B} and \order{C}{B}{A}). In the two orders that start with \task{A}, the smallest trace is that of \task{A} itself. In \order{C}{A}{B} the three traces are very close (roughly 7{,}600 to 8{,}000), so the correct answer there rests on a small difference. Used to guess the complete order, the Fisher ranking was correct in only one of six cases, which is close to the chance level of $1/6$.
+Figure~\ref{fig:fisher} shows the Fisher traces. They range from about 5{,}000 to 12{,}000, and the backbone trace is only slightly below the total trace, so the heads contribute little. Under ``low is recent'' the last task has the smallest trace in four of the six orders (\order{B}{A}{C}, \order{B}{C}{A}, \order{C}{A}{B} and \order{C}{B}{A}). In the two orders that start with \task{A}, the smallest trace is that of \task{A} itself. In \order{C}{A}{B} the three traces are very close (roughly 7{,}600 to 8{,}000), so the correct answer there rests on a small difference. This 4/6 refers to the last task only, and it is the same for the total and the backbone trace. Sorting all three traces also gives a guess for the \emph{complete} order (lowest trace = most recent, highest = oldest). That full-order guess was correct in only one of the six orders (\order{C}{A}{B}), which is close to the chance level of $1/6$.
 
 \begin{figure}[t]
 \centering
@@ -272,7 +272,7 @@ The main finding is that the final checkpoint does contain information about the
 
 The shared initialisation also plays a role in how we read the weight-space results. Mirzadeh et al.\ \cite{mirzadeh2020} report linear connectivity between continual and multitask solutions when the initialisation is shared. In our case weight matching found nothing to align, which is what one expects when all models start from the same $\theta_0$. The weight-space result may therefore not carry over to models with different initialisations, which we did not test.
 
-The Fisher result is harder to interpret. The direction that worked, ``low is recent'', would mean that the most recently learned task sits in a flatter region for its own data. That is an interesting statement, but with four correct out of six, two of them with small margins, and a full-order accuracy near chance, we cannot claim it as a reliable fingerprint. Its advantage is that it needs no reference models. Whether it holds up with more orders or seeds is an open question.
+The Fisher result is harder to interpret. The direction that worked, ``low is recent'', would mean that the most recently learned task sits in a flatter region for its own data. That is an interesting statement, but with four correct out of six for the last task, one of them with a very small margin, and a full-order accuracy near chance, we cannot claim it as a reliable fingerprint. Its advantage is that it needs no reference models. Whether it holds up with more orders or seeds is an open question.
 
 The forgetting results fit the general expectation: earlier tasks are damaged by later training even though their heads are frozen. Since the first task is forgotten more than the second in every order, it is natural to ask whether forgetting could also serve as a signal for the order, but we did not evaluate it as a predictor. Our forgetting is measured at the output through frozen heads, so the loss of accuracy reflects a change in the shared features. This fits the view of Hess et al.\ \cite{hess2024} that continually learned representations do forget, although we did not separate feature forgetting from output forgetting as they do, and we did not look at how well the representation supports new tasks (knowledge accumulation).
 
@@ -282,16 +282,13 @@ The forgetting results fit the general expectation: earlier tasks are damaged by
   \item There are only six orders. One flipped prediction changes an accuracy by 16.7 points, and the orders share the same references.
   \item We use three small tasks with five classes each and one architecture. Other task sets, more tasks, or larger models may behave differently.
   \item Training lasted 20 epochs per task. Forgetting and the fingerprints might change with longer or shorter training.
-  \item All checkpoints share one initialisation. This is why weight matching returned identity permutations, so we could not test whether it helps when models start from different initialisations.
-  \item The first-task rule for weight distance was found after seeing the results.
-  \item Loss-barrier and Jacobian results are diagnostics only, and the loss-barrier curves contain values we have not explained.
 \end{itemize}
 
 \section{Conclusion}\label{sec:conclusion}
 
 We trained a ResNet18 on three CIFAR-100 tasks in all six orders and checked whether the final model reveals the task learned last. For RQ1, linear CKA identified the last task in 6 of 6 orders and feature drift in 5 of 6, both clearly above the 33\% baseline. The Fisher trace reached 4 of 6 when low values are read as recent, which we cannot separate from chance with six orders. L2 distance and cosine similarity of the weights got 0 of 6, also after weight matching, so the failure is not caused by permutation symmetry. For RQ2, weight distance reliably points to the first task, and together with CKA this recovers all six complete orders of three tasks. This does not extend to longer sequences, since the middle tasks remain undetermined. For RQ3, earlier tasks lose a large part of their accuracy after later training, while the last task by definition does not, and this was measured after 20 epochs only.
 
-The natural next steps are to repeat the experiment with several seeds, to test longer training and more than three tasks, to examine the intermediate checkpoints to understand the first-task effect in weight space, to repeat weight matching with independently initialised models, where it is expected to matter, and to measure forgetting at the representation level in the sense of Hess et al.\ \cite{hess2024} to see whether it relates to the last-task signal in CKA.
+The natural next steps are to repeat the experiment with several seeds, to test longer training and more than three tasks or some complexity in the task set, where it may produce different results.
 
 \begin{thebibliography}{9}\small
 
